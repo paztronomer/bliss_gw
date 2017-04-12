@@ -229,7 +229,20 @@ class Telescope():
         print apy_coord.Angle([-20, 150, 350]*apy_u.deg).is_within_bounds(
             -10*apy_u.deg,None)
         """
-    
+
+    @classmethod
+    def horizon_blanco(cls):
+        '''
+        Overview:
+        1) limits are given (CTIO webpage) in HourAngle,Dec. Dec is consistent
+        with usual Declination. HourAngle is measured from RA at the zenith
+        2) for each object with RA-DEC, use DEC as it is. For RA, must be 
+        expressed in HourAngle, where HourAngle=0 is the Altitude of 90 deg
+        3) having the object coordinates in RA-DEC expressed in HourAngle-DEC,
+        must compare to the horizon limits given by CTIO
+        4) after compare, cut by airmass
+        '''
+        pass
 
     @classmethod 
     def horizon_limits_plc(cls):
@@ -279,6 +292,32 @@ class Schedule():
         ntime = np.insert(ntime,1,midnight)
         return ntime
         
+    @classmethod
+    def scan_night(cls,time_kn):
+        '''Use the 3 times for begin,middle,end of the night to create a
+        set of intermediate values
+        Inputs:
+        - time_kn = list of times objects, astropy Time
+        '''
+        #to iso format
+        ft = lambda x: apy_time.Time(apy_time.Time(x,format='jd'),
+                                    scale='utc',format='iso')
+        if len(time_kn) == 2:
+            tjd = map(lambda x: x.jd, time_kn)
+            tjd_uni = np.linspace(tjd[0],tjd[1],1000)
+            iso_uni = np.array(map(ft,tjd_uni))
+            res = iso_uni
+        elif len(time_kn) == 3:
+            tjd = map(lambda x: x.jd, time_kn) 
+            tjd1 = np.linspace(tjd[0],tjd[1],1000)
+            tjd2 = np.linspace(tjd[1],tjd[2],1000)
+            iso1 = np.array(map(ft,tjd1))
+            iso2 = np.array(map(ft,tjd2))
+            res = [iso1,iso2] 
+        else:
+            logging.error('Creation intermediate times needs input length: 2-3')
+            return None
+        return res
 
     @classmethod
     def avoid_moon(cls,day_ini,earth_loc):
@@ -322,11 +361,18 @@ class Schedule():
         deltaUTC = utc_diff*apy_u.hour
         taux = apy_time.Time('2017-04-13 12:00:00') - deltaUTC
         t_window = Schedule.eff_night(taux,site)
+        #define times for the range of hours of observation window
+        timeshot = Schedule.scan_night(t_window)
+        
+        '''if only half nites are used, then 
+        '''
+    
+
+
         
         #get the telescope horizon limits, in AltAz coordinates
-        lim_alt,lim_az,lim_altfix = Telescope.horizon_limits_tcs(t_window,site)
+        #lim_alt,lim_az,lim_altfix = Telescope.horizon_limits_tcs(t_window,site)
         
-        print lim_alt,lim_az
         #give time range with more entries? yes, because an object can
         #be at the observability window maybe for only a part of the night
         exit()
