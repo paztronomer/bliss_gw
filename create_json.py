@@ -152,6 +152,11 @@ class Telescope():
         if for each one of the times in time_n, middle level is for the
         horizon borders, and lower level is for lower-RA,upper-RA,DEC
         '''
+        #bonus track: translate the RA-DEC coordinates to AltAz and return 
+        #them as well
+        import matplotlib.pyplot as plt
+        plt.plot(radec_lim[0][:][0],radec_lim[0][:][2],'bo')
+        plt.show()
         return radec_lim
 
         exit()
