@@ -30,7 +30,7 @@ import logging
 
 class Toolbox():
     @classmethod
-    def lsq_interp(cls,x,y,degree=3):
+    def lsq_interp(cls,x,y,degree=4):
         '''Caller fot the scipy least squares method interpolator
         To call scipy.interpolate_make_lsq_spline():
         - x: abcissas
@@ -41,10 +41,11 @@ class Toolbox():
         - axis: interpolation axis, default is 0
         - check_finite: whetehr to check if the inputs contains only finite 
         elements
-        NOTE: 
+        NOTES: 
         (*) number of data points must be larger than the spline degree
         (*) knots must be a subset of data points of x[j] such that
         t[j] < x[j] < t[j+k+1], for j=0,1..n-k-2
+        (*) degree 4 works slightly better than lower values
         '''
         naux = np.int(np.ceil(x.shape[0]*0.1))
         #by hand I set the use of all but 2 points at the ends 
@@ -97,15 +98,18 @@ class Telescope():
         return coo
 
     @classmethod
-    def horizon_limits_tcs(cls,time_n,zenith_ra,earth_loc):
+    def horizon_limits_tcs(cls,time_n,zenith_ra,earth_loc,Nstep=760):
         '''Translate the CTIO horizon limits, given in units of HourAngle-DEC
         to RA-DEC coordinates of the site at the given time. With this,
         a set of limits at different times will be set, to compare with the 
         target object and select those inside the borders.
-        This is performed for one time at time.
+        This is performed for a set of time stamps, covering a range between
+        middle/end/begin night.
+        Inputs:
+        - Nsteps: 760 give us at least one point each ~10 arcmin in DEC
         http://www.ctio.noao.edu/noao/content/Horizon-Limits
         '''
-        houra = [5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,
+        hra_h = [5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,
                 5.25,5.25,5.12,4.96,4.79,4.61,4.42,4.21,3.98,3.72,3.43,3.08,
                 2.64,2.06,1.10,0.00]
         dec_d = [-89.00,-85.00,-80.00,-75.00,-70.00,-65.00,-60.00,-55.00,
@@ -127,7 +131,29 @@ class Telescope():
         dec_d = np.array(dec_d)[idx1]
         alt_d = np.array(alt_d)[idx1]
         """
-             
+        #interpolate
+        lsq_spl = Toolbox.lsq_interp(np.array(dec_d),np.array(hra_h))
+        dec_inter = np.linspace(min(dec_d),max(dec_d),Nstep)
+        hra_inter = lsq_spl(dec_inter)
+
+        import matplotlib.pyplot as plt
+        plt.plot(hra_h,dec_d,'ro')
+        plt.plot(hra_inter,dec_inter,'b-')
+        plt.show()
+
+        #transform interpolated HourAngle to RA
+        hra_inter = apy_coord.Angle(hra_inter,unit=apy_u.h)
+        dec_inter = apy_coord.Angle(dec_inter,unit=apy_u.deg)
+        radec_lim = []
+        for z in zenith_ra:
+            radec_lim.append([[z-d,z+d,dec_inter[idx]] 
+                            for idx,d in enumerate(hra_inter)])
+        '''the result is a set of nested lists in 3 levels. Upper level
+        if for each one of the times in time_n, middle level is for the
+        horizon borders, and lower level is for lower-RA,upper-RA,DEC
+        '''
+        return radec_lim
+
         exit()
         time_range = np.nan
         #interpolate
