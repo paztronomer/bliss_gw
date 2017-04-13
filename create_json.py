@@ -260,16 +260,18 @@ class Telescope():
     
     @classmethod
     def zenith_ra(cls,time_arr,site):
-        '''Calculates the RA of the azimuth, at a given time, at a given site
+        '''Calculates the RA of the azimuth, at a given time, at a given site.
+        Time must be given in UTC.
         '''
-        xtime = '2017-04-14 03:14:33'#time_arr[0] 
-        #>>>ASTROPY RECOGNIZES TIMES AS ALL BEIGN UTC
-        zen = apy_coord.SkyCoord(alt=90*apy_u.deg,az=171*apy_u.deg,
-                                obstime=xtime,location=site,frame='altaz')
-        aux = zen.icrs
-        #aux = zen.transform_to(apy_coord.SkyCoord(unit=apy_u.deg,frame='icrs'))
-        print zen
-        print aux.ra
+        #create the azimuth coordinates and then use them to get the RA
+        g = lambda x: apy_coord.SkyCoord(alt=90.*apy_u.deg,az=0.*apy_u.deg,
+                                        obstime=x,location=site,
+                                        frame='altaz').icrs.ra
+        aux1 = map(g,time_arr)
+        #print aux1[0]
+        #print apy_coord.Angle(apy_coord.Angle(5.25,unit=apy_u.h),unit=apy_u.deg)
+        #u1 = aux1[0] - apy_coord.Angle(5.25,unit=apy_u.h)
+        return aux1
 
 
 class Schedule():
@@ -300,14 +302,13 @@ class Schedule():
             exit(1)
         #save time for begin, middle, and end of the night
         ntime = aux[idx_minim]
-        print ntime
         midnight = apy_time.Time(apy_time.Time(np.mean(ntime.jd),format='jd'),
                                 scale='utc',format='iso')
         ntime = np.insert(ntime,1,midnight)
         return ntime
         
     @classmethod
-    def scan_night(cls,time_kn):
+    def scan_night(cls,time_kn,Nstep=500):
         '''Use the 3 times for begin,middle,end of the night to create a
         set of intermediate values
         Inputs:
@@ -318,13 +319,13 @@ class Schedule():
                                     scale='utc',format='iso')
         if len(time_kn) == 2:
             tjd = map(lambda x: x.jd, time_kn)
-            tjd_uni = np.linspace(tjd[0],tjd[1],1000)
+            tjd_uni = np.linspace(tjd[0],tjd[1],Nstep)
             iso_uni = np.array(map(ft,tjd_uni))
             res = [iso_uni]
         elif len(time_kn) == 3:
             tjd = map(lambda x: x.jd, time_kn) 
-            tjd1 = np.linspace(tjd[0],tjd[1],1000)
-            tjd2 = np.linspace(tjd[1],tjd[2],1000)
+            tjd1 = np.linspace(tjd[0],tjd[1],Nstep)
+            tjd2 = np.linspace(tjd[1],tjd[2],Nstep)
             iso1 = np.array(map(ft,tjd1))
             iso2 = np.array(map(ft,tjd2))
             res = [iso1,iso2] 
@@ -376,16 +377,19 @@ class Schedule():
         deltaUTC = utc_diff*apy_u.hour
         taux = apy_time.Time('2017-04-13 12:00:00') - deltaUTC
         t_window = Schedule.eff_night(taux,site)
-        print t_window
         #define times for the range of hours of observation window
-        timeshot = Schedule.scan_night(t_window)
+        timeshot = Schedule.scan_night(t_window,Nstep=10)
         
         '''if only half nites are used, then timeshot will have 1 array,
         if whole night, 2 arrays
         '''
-        
+
         #for each of the time stamps, find the zenith RA
-        Telescope.zenith_ra(timeshot[0],site)        
+        fx = lambda y: Telescope.zenith_ra(y,site)        
+        zen_ra = [fx(tm) for tm in timeshot]
+        
+        #with RA for the zenith and using DEC as it, translate the borders
+        #found in CTIO PDF document, given in HourAngle,Dec
 
 
 
@@ -418,59 +422,6 @@ class Schedule():
 
 
 
-
-    @classmethod
-    def get_nite(cls):
-        #http://www.astropy.org/astropy-tutorials/Coordinates.html
-        #must ingest hour,nite
-        
-        #obj = astropy.coordinates.SkyCoord(
-        #    p_ra,p_dec,unit=(astropy.units.deg,astropy.units.deg),frame='icrs')
-        #object, selecting SMC
-        smc = astropy.coordinates.SkyCoord.from_name('smc')
-        obj = smc
-
-        #instrument on specific nite
-        site = Telescope.site()
-        #beware winter vs summer
-        dUTC = -3*astropy.units.hour
-        #need to guess a hour, that after we will replace for the real hour,
-        #by discovering the time at which the Sun is at -14 degrees (ephemeris)
-        hour1 = astropy.time.Time('2017-04-14 23:00')
-        hour1 -= dUTC
-        obs_time = astropy.time.Time(hour1)
-        #transform site to horizontal (AltAz) coordinates
-        site_aa = astropy.coordinates.AltAz(location=site,obstime=obs_time)
-        #transform the object coordinates to AltAz of the site
-        obj_aa = obj.transform_to(site_aa)
-        print obj_aa
-        print 'Object altitude {0:.2}'.format(obj_aa.alt)
-        
-        #for this object, lets see the observability
-        midnight = astropy.time.Time('2017-04-14 23:00') - dUTC
-        auxmid = np.linspace(-2, 7, 100)*astropy.units.hour
-        site_aux1 = obj.transform_to(astropy.coordinates.AltAz(
-            obstime=midnight+auxmid,location=site))
-        import matplotlib.pyplot as plt
-        plt.plot(auxmid,site_aux1.secz)  
-        plt.xlim(-2, 7)  
-        plt.ylim(1, 4)  
-        plt.xlabel('Hours from EDT Midnight')  
-        plt.ylabel('Airmass [Sec(z)]')  
-        plt.show()
-
-
-        #what is the observing window for a specific night?
-        #where the moon is?
-        #http://docs.astropy.org/en/v1.1.2/coordinates/observing-example.html
-        
-        '''other approach, but with external module astroplan:
-        http://bmmorris.blogspot.com/2015/07/astroplan-tutorial-1.html
-        '''
-
-
-         
-        
 
 
 if __name__ == '__main__':
