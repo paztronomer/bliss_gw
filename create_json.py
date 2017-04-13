@@ -97,14 +97,15 @@ class Telescope():
         return coo
 
     @classmethod
-    def horizon_limits_tcs(cls,time_range,earth_loc):
-        '''The horizon limits must be calculated in a nightly basis, so this
-        method receives the effective time range for the observing run. 
-        The allowed coordinates are transformed to AltAz and returned
+    def horizon_limits_tcs(cls,time_n,zenith_ra,earth_loc):
+        '''Translate the CTIO horizon limits, given in units of HourAngle-DEC
+        to RA-DEC coordinates of the site at the given time. With this,
+        a set of limits at different times will be set, to compare with the 
+        target object and select those inside the borders.
+        This is performed for one time at time.
+        http://www.ctio.noao.edu/noao/content/Horizon-Limits
         '''
-        #http://www.ctio.noao.edu/noao/content/Horizon-Limits
-        #https://www.ctio.noao.edu/DocDB/0007/000717/002/Horizon%20Limits.pdf
-        ra_hr = [5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,
+        houra = [5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,
                 5.25,5.25,5.12,4.96,4.79,4.61,4.42,4.21,3.98,3.72,3.43,3.08,
                 2.64,2.06,1.10,0.00]
         dec_d = [-89.00,-85.00,-80.00,-75.00,-70.00,-65.00,-60.00,-55.00,
@@ -115,6 +116,7 @@ class Telescope():
                 25.2,23.4,23.0,23.0,23.0,23.0,23.0,23.0,23.0,23.0,23.0,
                 23.0,23.0,23.0,23.0,23.0]
         min_alt = 23
+        #use strict comparison (not <=,>=)
         """
         ra_hr += map(lambda r: -1*r,ra_hr[:-1])
         dec_d += dec_d[:-1]
@@ -125,6 +127,9 @@ class Telescope():
         dec_d = np.array(dec_d)[idx1]
         alt_d = np.array(alt_d)[idx1]
         """
+             
+        exit()
+        time_range = np.nan
         #interpolate
         lsq1 = Toolbox.lsq_interp(np.array(dec_d),np.array(ra_hr))
         dec_spl = np.linspace(min(dec_d),max(dec_d),1000)
@@ -229,21 +234,7 @@ class Telescope():
         print apy_coord.Angle([-20, 150, 350]*apy_u.deg).is_within_bounds(
             -10*apy_u.deg,None)
         """
-
-    @classmethod
-    def horizon_blanco(cls):
-        '''
-        Overview:
-        1) limits are given (CTIO webpage) in HourAngle,Dec. Dec is consistent
-        with usual Declination. HourAngle is measured from RA at the zenith
-        2) for each object with RA-DEC, use DEC as it is. For RA, must be 
-        expressed in HourAngle, where HourAngle=0 is the Altitude of 90 deg
-        3) having the object coordinates in RA-DEC expressed in HourAngle-DEC,
-        must compare to the horizon limits given by CTIO
-        4) after compare, cut by airmass
-        '''
-        pass
-
+    
     @classmethod 
     def horizon_limits_plc(cls):
         #limits: [ha_west,ha_east,dec_south,dec_north]
@@ -389,8 +380,8 @@ class Schedule():
         zen_ra = [fx(tm) for tm in timeshot]
         
         #with RA for the zenith and using DEC as it, translate the borders
-        #found in CTIO PDF document, given in HourAngle,Dec
-
+        #found in CTIO PDF document to RA-DEC, given in HourAngle,Dec
+        Telescope.horizon_limits_tcs(timeshot[0],zen_ra[0],site)
 
 
         #get the telescope horizon limits, in AltAz coordinates
