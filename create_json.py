@@ -93,7 +93,7 @@ class Telescope():
             geod_lat = sign_lat*sum(geod_lat)
             geod_long = sign_long*sum(geod_long)
             coo = apy_coord.EarthLocation.from_geodetic(
-                geod_lat,geod_long,height=geod_h,ellipsoid=geod_ellip) 
+                geod_long,geod_lat,height=geod_h,ellipsoid=geod_ellip) 
         return coo
 
     @classmethod
@@ -257,6 +257,19 @@ class Telescope():
     def other_restrictions():
         #https://www.ctio.noao.edu/DocDB/0007/000717/002/Horizon%20Limits.pdf
         return False
+    
+    @classmethod
+    def zenith_ra(cls,time_arr,site):
+        '''Calculates the RA of the azimuth, at a given time, at a given site
+        '''
+        xtime = '2017-04-14 03:14:33'#time_arr[0] 
+        #>>>ASTROPY RECOGNIZES TIMES AS ALL BEIGN UTC
+        zen = apy_coord.SkyCoord(alt=90*apy_u.deg,az=171*apy_u.deg,
+                                obstime=xtime,location=site,frame='altaz')
+        aux = zen.icrs
+        #aux = zen.transform_to(apy_coord.SkyCoord(unit=apy_u.deg,frame='icrs'))
+        print zen
+        print aux.ra
 
 
 class Schedule():
@@ -287,6 +300,7 @@ class Schedule():
             exit(1)
         #save time for begin, middle, and end of the night
         ntime = aux[idx_minim]
+        print ntime
         midnight = apy_time.Time(apy_time.Time(np.mean(ntime.jd),format='jd'),
                                 scale='utc',format='iso')
         ntime = np.insert(ntime,1,midnight)
@@ -306,7 +320,7 @@ class Schedule():
             tjd = map(lambda x: x.jd, time_kn)
             tjd_uni = np.linspace(tjd[0],tjd[1],1000)
             iso_uni = np.array(map(ft,tjd_uni))
-            res = iso_uni
+            res = [iso_uni]
         elif len(time_kn) == 3:
             tjd = map(lambda x: x.jd, time_kn) 
             tjd1 = np.linspace(tjd[0],tjd[1],1000)
@@ -316,8 +330,9 @@ class Schedule():
             res = [iso1,iso2] 
         else:
             logging.error('Creation intermediate times needs input length: 2-3')
-            return None
+            exit(1)
         return res
+
 
     @classmethod
     def avoid_moon(cls,day_ini,earth_loc):
@@ -361,15 +376,19 @@ class Schedule():
         deltaUTC = utc_diff*apy_u.hour
         taux = apy_time.Time('2017-04-13 12:00:00') - deltaUTC
         t_window = Schedule.eff_night(taux,site)
+        print t_window
         #define times for the range of hours of observation window
         timeshot = Schedule.scan_night(t_window)
         
-        '''if only half nites are used, then 
+        '''if only half nites are used, then timeshot will have 1 array,
+        if whole night, 2 arrays
         '''
-    
-
-
         
+        #for each of the time stamps, find the zenith RA
+        Telescope.zenith_ra(timeshot[0],site)        
+
+
+
         #get the telescope horizon limits, in AltAz coordinates
         #lim_alt,lim_az,lim_altfix = Telescope.horizon_limits_tcs(t_window,site)
         
