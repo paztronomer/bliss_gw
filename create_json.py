@@ -183,7 +183,8 @@ class Schedule():
         - day_ini: noon of the initial day of observation
         - earth_loc: location of the observing site
         Returns:
-        - array containing begin,middle,and end of the night
+        - array of astropy.time.core.Time elements, containing begin,
+        middle,and end of the night
         '''
         #Sun position is in GCRS
         aux = day_ini + np.linspace(0,24,1440) * apy_u.hour
@@ -213,27 +214,31 @@ class Schedule():
         set of intermediate values
         Inputs:
         - time_kn = list of times objects, astropy Time
+        Returns:
+        - array of shape (N,M) N being number os section of the night 
+        (1 or 2 typically) and M the number of time intervals the section
+        want to be divided for a later interpolation. Each time is an object of
+        the class astropy.time.core.Time
         '''
         #to iso format
         ft = lambda x: apy_time.Time(apy_time.Time(x,format='jd'),
-                                    scale='utc',format='iso')
+                                    scale='utc',format='iso')#.iso
         if len(time_kn) == 2:
             tjd = map(lambda x: x.jd, time_kn)
             tjd_uni = np.linspace(tjd[0],tjd[1],Nstep)
-            iso_uni = np.array(map(ft,tjd_uni))
-            res = [iso_uni]
+            iso_uni = np.array([map(ft,tjd_uni)])#,dtype=np.dtype('|S50'))
+            res = iso_uni
         elif len(time_kn) == 3:
             tjd = map(lambda x: x.jd, time_kn) 
             tjd1 = np.linspace(tjd[0],tjd[1],Nstep)
             tjd2 = np.linspace(tjd[1],tjd[2],Nstep)
-            iso1 = np.array(map(ft,tjd1))
-            iso2 = np.array(map(ft,tjd2))
-            res = [iso1,iso2] 
+            iso1 = np.array([map(ft,tjd1)])#,dtype=np.dtype('|S50'))
+            iso2 = np.array([map(ft,tjd2)])#,dtype=np.dtype('|S50'))
+            res = np.vstack((iso1,iso2))
         else:
             logging.error('Creation intermediate times needs input length: 2-3')
             exit(1)
         return res
-
 
     @classmethod
     def avoid_moon(cls,day_ini,earth_loc):
@@ -273,18 +278,21 @@ class Schedule():
         #trange = [local_t1,local_t2]
         #trange = [x - deltaUTC for x in trange]
         
-        #starting at noon, scan for 24hrs searching for the Sun at -14deg 
+        #starting at noon, scan for 24hrs searching for the Sun at -14deg,
+        #returns an array on which time entries are astropy.time.core.Time
         deltaUTC = utc_diff*apy_u.hour
         taux = apy_time.Time(begin_day) - deltaUTC
         t_window = Schedule.eff_night(taux,site)
-        #define times for the range of hours of observation window. The 
-        #result is N lists as N intervals of night we calculated, namely,
-        #2 for the init-middle and middle-end of the night
-        timeshot = Schedule.scan_night(t_window,Nstep=10)
+
+        #given the borders or the observation window for a specific night, 
+        #interpolate as many points as the Nstep, for each interval defined
+        #by the input borders. Returns an array of astropy.time.core.Time 
+        #entries, of shape (intervals,interpolated_times)
+        t_interp = Schedule.scan_night(t_window,Nstep=10)
         
         #for each of the time stamps, find the zenith RA
         fx = lambda y: Telescope.zenith_ra(y,site)        
-        zen_ra = [fx(tm) for tm in timeshot]
+        zen_ra = [fx(tm) for tm in t_interp]
         
         #with RA for the zenith and using DEC as it, translate the borders
         #found in CTIO PDF document to RA-DEC, given in HourAngle,Dec
