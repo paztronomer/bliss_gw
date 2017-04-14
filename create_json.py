@@ -170,18 +170,16 @@ class Telescope():
         the night was divided, typically 2 halves. The shape is (intervals,
         interpolation_inside _interval)
         Returns:
-        NNNNNNNNN
+        - array of same dimensions as the input array. Each element is a
+        float for the RA of the zenith at given time and site, in degrees.
         '''
         #create the azimuth coordinates and then use them to get the RA
         g = lambda x: apy_coord.SkyCoord(alt=90.*apy_u.deg,az=0.*apy_u.deg,
                                         obstime=x,location=site,
-                                        frame='altaz').icrs.ra
-        for per in time_arr:
-            aux1 = np.array([map(g,per)])
-            print aux1
-            print type(aux1)
-        exit()
-        return aux1
+                                        frame='altaz').icrs.ra.degree
+        h = lambda x: np.array(map(g,x))
+        res = np.array(map(h,time_arr))
+        return res
 
 
 class Schedule():
