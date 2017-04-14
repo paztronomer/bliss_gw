@@ -165,12 +165,22 @@ class Telescope():
     def zenith_ra(cls,time_arr,site):
         '''Calculates the RA of the azimuth, at a given time, at a given site.
         Time must be given in UTC.
+        Inputs:
+        - array of times (astropy.time class) for each one of the intervals 
+        the night was divided, typically 2 halves. The shape is (intervals,
+        interpolation_inside _interval)
+        Returns:
+        NNNNNNNNN
         '''
         #create the azimuth coordinates and then use them to get the RA
         g = lambda x: apy_coord.SkyCoord(alt=90.*apy_u.deg,az=0.*apy_u.deg,
                                         obstime=x,location=site,
                                         frame='altaz').icrs.ra
-        aux1 = map(g,time_arr)
+        for per in time_arr:
+            aux1 = np.array([map(g,per)])
+            print aux1
+            print type(aux1)
+        exit()
         return aux1
 
 
@@ -291,9 +301,12 @@ class Schedule():
         t_interp = Schedule.scan_night(t_window,Nstep=10)
         
         #for each of the time stamps, find the zenith RA
-        fx = lambda y: Telescope.zenith_ra(y,site)        
-        zen_ra = [fx(tm) for tm in t_interp]
-        
+        #
+        #fx = lambda y: Telescope.zenith_ra(y,site)        
+        #zen_ra = [fx(tm) for tm in t_interp]
+        zen_ra = Telescope.zenith_ra(t_interp,site)
+
+
         #with RA for the zenith and using DEC as it, translate the borders
         #found in CTIO PDF document to RA-DEC, given in HourAngle,Dec
         Telescope.horizon_limits_tcs(timeshot[0],zen_ra[0],site)
