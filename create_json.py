@@ -105,6 +105,8 @@ class Telescope():
         target object and select those inside the borders.
         This is performed for a set of time stamps, covering a range between
         middle/end/begin night.
+        The RA value of the zenith is calculated using the zenith Altitude 
+        for a given time end then translating it to RA-DEC
         Inputs:
         - Nsteps: 760 give us at least one point each ~10 arcmin in DEC
         http://www.ctio.noao.edu/noao/content/Horizon-Limits
@@ -136,11 +138,6 @@ class Telescope():
         dec_inter = np.linspace(min(dec_d),max(dec_d),Nstep)
         hra_inter = lsq_spl(dec_inter)
 
-        import matplotlib.pyplot as plt
-        plt.plot(hra_h,dec_d,'ro')
-        plt.plot(hra_inter,dec_inter,'b-')
-        plt.show()
-
         #transform interpolated HourAngle to RA
         hra_inter = apy_coord.Angle(hra_inter,unit=apy_u.h)
         dec_inter = apy_coord.Angle(dec_inter,unit=apy_u.deg)
@@ -149,122 +146,11 @@ class Telescope():
             radec_lim.append([[z-d,z+d,dec_inter[idx]] 
                             for idx,d in enumerate(hra_inter)])
         '''the result is a set of nested lists in 3 levels. Upper level
-        if for each one of the times in time_n, middle level is for the
-        horizon borders, and lower level is for lower-RA,upper-RA,DEC
+        if for each one of the times in time_n, second level is for the set of
+        3 horizon borders at the given time, and third level is for these 3
+        elements: lower-RA,upper-RA,DEC
         '''
-        #bonus track: translate the RA-DEC coordinates to AltAz and return 
-        #them as well
-        import matplotlib.pyplot as plt
-        plt.plot(radec_lim[0][:][0],radec_lim[0][:][2],'bo')
-        plt.show()
         return radec_lim
-
-        exit()
-        time_range = np.nan
-        #interpolate
-        lsq1 = Toolbox.lsq_interp(np.array(dec_d),np.array(ra_hr))
-        dec_spl = np.linspace(min(dec_d),max(dec_d),1000)
-        ra_spl = lsq1(dec_spl)
-        #reflect data for negative ra
-        dec_spl = np.concatenate([dec_spl,dec_spl[:-1]])
-        ra_spl = np.concatenate([ra_spl,-1*ra_spl[:-1]])
-        #sort in ra
-        idx1 = np.argsort(ra_spl)
-        ra_spl = np.array(ra_spl)[idx1]
-        dec_spl = np.array(dec_spl)[idx1]
-        #ra must be ]-5.25, 5.25[ deg
-        #dec must be ]39,-89[ deg
-        #elevation >23 deg
-        #must use the combination of these 3 to get the horizon limit
-        #translate them to the same frame: AltAz 
-        '''alt_d = apy_coord.Angle(alt_d,unit=apy_u.deg)'''
-        aux_radec = apy_coord.SkyCoord(ra=ra_spl,dec=dec_spl,frame='icrs',
-                                unit=(apy_u.h,apy_u.deg))
-        f = lambda x : aux_radec.transform_to(apy_coord.AltAz(obstime=x,
-                                                        location=earth_loc))
-        aux_altaz = [f(a) for a in time_range]
-        #evaluate limits in each time border, returns arr [deg],[min],[sec]
-        alt1 = [apy_coord.Angle(x.alt).signed_dms[:] for x in aux_altaz]
-        az1 = [apy_coord.Angle(x.az).signed_dms[:] for x in aux_altaz]
-        '''alt2 = [alt_d.signed_dms[:] for x in alt_d]'''
-
-        #to transform to degrees
-        sumdeg = lambda *w: w[0]*(w[1]+w[2]/np.float(60)+w[3]/np.float(60**2))
-        vect = np.vectorize(sumdeg,otypes=['f8'])
-        #for every time of the input time range
-        alt1 = map(lambda x: vect(*x), alt1)
-        az1 = map(lambda x: vect(*x), az1)
-
-        #need to replicate in the initial altitude set of values, the number
-        #of entries of the time range
-        '''alt_d = [np.array(alt_d) for i in xrange(time_range.shape[0])]'''
-      
-        return alt1,az1,min_alt
-
-        """
-        '''MUST PERFORM THE LSQ ON RA DEC, BECAUSE IS EASIER AND FIXED!!
-        '''
-        exit()
-        #sort ascending, using ra_hr
-        idx = np.argsort(az1[2])[::]
-        tmp_az1 = np.array(az1[2])[idx]
-        tmp_alt1 = np.array(alt1[2])[idx]
-        #interpolate
-        #plt.plot(test_x, lsq_p(test_x), 'g-', lw=3, label='LSQ spline')
-        #plt.plot(tmp_az1,tmp_alt1,'bo')
-        #plt.show()
-        #plt.plot(np.linspace(az1[0][0],az1[0][-1],1000), 
-        #        lsq(np.linspace(az1[0][0],az[0][-1],1000)), 'o', 
-        #        az1, alt1, '-')
-        #plt.show()
-
-        exit()
-
-        xp = az1[2]
-        fp = alt1[2]
-        print np.interp(-10.,xp,fp)
-
-        #interpolate
-        import matplotlib.pyplot as plt
-        from scipy import interpolate
-        x = az1[2]
-        y = alt1[2]
-        f = interpolate.interp1d(x,y)
-        xnew = np.arange(min(x),max(y),0.1)
-        ynew = f(xnew)   # use interpolation function returned by `interp1d`
-        plt.plot(x, y, 'o', xnew, ynew, '-')
-        plt.show()
-        exit()
-
-        #aux_alt = [apy_coord.Angle(x.alt).signed_dms[:] for x in aux_altaz]
-        #aux_az = [apy_coord.Angle(x.az).signed_dms[:] for x in aux_altaz]
-
-        #transform AltAz to degrees. Use vectorization
-        #a1s,a1v1,a1v2,a1v3 = apy_coord.Angle(sun1_altaz.alt).signed_dms
-        #todeg = lambda w,x,y,z: w*(x + y/np.float(60) + z/np.float(60**2))
-        #vect = np.vectorize(todeg,otypes=['f4'])
-        #sun1_deg = vect(vs,v1,v2,v3)
-        #print alt1
-        #exit()
-        
-        import matplotlib.pyplot as plt
-        for i in xrange(len(alt1)):
-            plt.plot(az1[i],alt1[i],'bo')
-            plt.plot(az1[i],alt_d[i],'ro')
-        plt.show()
-        
-        exit()
-        #to transform AltAz to angles in degrees, use Angle(altaz[0].alt).dms
-        """
-        """
-        print apy_coord.Angle(altaz[0].alt).dms[:]
-        print apy_coord.Angle(altaz[0].alt).is_within_bounds('0d', '360d')
-        print altaz[0].alt
-        print altaz[0].az
-        print altaz[0].secz
-        print apy_coord.Angle([-20, 150, 350]*apy_u.deg).is_within_bounds(
-            -10*apy_u.deg,None)
-        """
     
     @classmethod 
     def horizon_limits_plc(cls):
@@ -273,11 +159,6 @@ class Telescope():
         dec_d = [-30.0,-22.0,-95.14,40.31]
         alt_d = [245.00,109.00,180.00,0.00]
         az_d = [18.97,11.40,24.86,19.68]
-        return False
-
-    @classmethod
-    def other_restrictions():
-        #https://www.ctio.noao.edu/DocDB/0007/000717/002/Horizon%20Limits.pdf
         return False
     
     @classmethod
@@ -290,9 +171,6 @@ class Telescope():
                                         obstime=x,location=site,
                                         frame='altaz').icrs.ra
         aux1 = map(g,time_arr)
-        #print aux1[0]
-        #print apy_coord.Angle(apy_coord.Angle(5.25,unit=apy_u.h),unit=apy_u.deg)
-        #u1 = aux1[0] - apy_coord.Angle(5.25,unit=apy_u.h)
         return aux1
 
 
@@ -365,7 +243,7 @@ class Schedule():
 
 
     @classmethod
-    def point(cls,site_name=None,utc_diff=-3):
+    def point(cls,site_name=None,utc_diff=-3,begin_day='2017-04-13 12:00:00'):
         '''This method has few main steps:
         1) gets the site location from another class
         2) gets the range of hours the night lasts
@@ -397,15 +275,13 @@ class Schedule():
         
         #starting at noon, scan for 24hrs searching for the Sun at -14deg 
         deltaUTC = utc_diff*apy_u.hour
-        taux = apy_time.Time('2017-04-13 12:00:00') - deltaUTC
+        taux = apy_time.Time(begin_day) - deltaUTC
         t_window = Schedule.eff_night(taux,site)
-        #define times for the range of hours of observation window
+        #define times for the range of hours of observation window. The 
+        #result is N lists as N intervals of night we calculated, namely,
+        #2 for the init-middle and middle-end of the night
         timeshot = Schedule.scan_night(t_window,Nstep=10)
         
-        '''if only half nites are used, then timeshot will have 1 array,
-        if whole night, 2 arrays
-        '''
-
         #for each of the time stamps, find the zenith RA
         fx = lambda y: Telescope.zenith_ra(y,site)        
         zen_ra = [fx(tm) for tm in timeshot]
