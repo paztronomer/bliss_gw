@@ -98,18 +98,14 @@ class Telescope():
         return coo
 
     @classmethod
-    def horizon_limits_tcs(cls,time_n,zenith_ra,earth_loc,Nstep=760):
-        '''Translate the CTIO horizon limits, given in units of HourAngle-DEC
-        to RA-DEC coordinates of the site at the given time. With this,
-        a set of limits at different times will be set, to compare with the 
-        target object and select those inside the borders.
-        This is performed for a set of time stamps, covering a range between
-        middle/end/begin night.
-        The RA value of the zenith is calculated using the zenith Altitude 
-        for a given time end then translating it to RA-DEC
-        Inputs:
-        - Nsteps: 760 give us at least one point each ~10 arcmin in DEC
-        http://www.ctio.noao.edu/noao/content/Horizon-Limits
+    def horizon_limits_tcs(cls):
+        '''Method to return an interpolator, based on the coordinates given
+        by CTIO as the horizon limits. The coordinates from CTIO are in
+        HOUR_ANGLE, DEC so th HOUR_ANGLE must be added/substracted to the RA 
+        of the zenith at a particular time, to get the real limits.
+        Returns:
+        - an interpolator object, class scipy.interpolate._bsplines.BSpline 
+        When this interpolator is applied, returns an array
         '''
         hra_h = [5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,
                 5.25,5.25,5.12,4.96,4.79,4.61,4.42,4.21,3.98,3.72,3.43,3.08,
@@ -121,37 +117,10 @@ class Telescope():
         alt_d = [30.4,31.0,31.6,31.9,32.0,31.8,31.3,30.6,29.6,28.3,26.9,
                 25.2,23.4,23.0,23.0,23.0,23.0,23.0,23.0,23.0,23.0,23.0,
                 23.0,23.0,23.0,23.0,23.0]
-        min_alt = 23
-        #use strict comparison (not <=,>=)
-        """
-        ra_hr += map(lambda r: -1*r,ra_hr[:-1])
-        dec_d += dec_d[:-1]
-        alt_d += alt_d[:-1]
-        #sorting to perform LSQ in dec,ra (inverted for simplicity)
-        idx1 = np.argsort(dec_d)
-        ra_hr = np.array(ra_hr)[idx1]
-        dec_d = np.array(dec_d)[idx1]
-        alt_d = np.array(alt_d)[idx1]
-        """
-        #interpolate
+        #interpolate initial grid
         lsq_spl = Toolbox.lsq_interp(np.array(dec_d),np.array(hra_h))
-        dec_inter = np.linspace(min(dec_d),max(dec_d),Nstep)
-        hra_inter = lsq_spl(dec_inter)
-
-        #transform interpolated HourAngle to RA
-        hra_inter = apy_coord.Angle(hra_inter,unit=apy_u.h)
-        dec_inter = apy_coord.Angle(dec_inter,unit=apy_u.deg)
-        radec_lim = []
-        for z in zenith_ra:
-            radec_lim.append([[z-d,z+d,dec_inter[idx]] 
-                            for idx,d in enumerate(hra_inter)])
-        '''the result is a set of nested lists in 3 levels. Upper level
-        if for each one of the times in time_n, second level is for the set of
-        3 horizon borders at the given time, and third level is for these 3
-        elements: lower-RA,upper-RA,DEC
-        '''
-        return radec_lim
-    
+        return lsq_spl 
+        
     @classmethod 
     def horizon_limits_plc(cls):
         #limits: [ha_west,ha_east,dec_south,dec_north]
@@ -254,7 +223,6 @@ class Schedule():
         moon1 = apy_coord.get_moon(day_ini,earth_loc)
         return False
 
-
     @classmethod
     def point(cls,site_name=None,utc_diff=-3,begin_day='2017-04-13 12:00:00'):
         '''This method has few main steps:
@@ -265,7 +233,6 @@ class Schedule():
         PENDING:
         - if the field is visible, get the airmass (use threshold by user)
         and select the order of observing
-
         Note:
         - time from user must be feed in local time, but processing is made in 
         UTC. The results are given in LOCAL time by astropy
@@ -298,18 +265,14 @@ class Schedule():
         #entries, of shape (intervals,interpolated_times)
         t_interp = Schedule.scan_night(t_window,Nstep=10)
         
-        #for each of the time stamps, find the zenith RA
-        #
-        #fx = lambda y: Telescope.zenith_ra(y,site)        
-        #zen_ra = [fx(tm) for tm in t_interp]
+        #for each of the time stamps, find the zenith RA. Returns an array of
+        #same shape as the array of interpolated times
         zen_ra = Telescope.zenith_ra(t_interp,site)
 
-
-        #with RA for the zenith and using DEC as it, translate the borders
-        #found in CTIO PDF document to RA-DEC, given in HourAngle,Dec
-        Telescope.horizon_limits_tcs(timeshot[0],zen_ra[0],site)
-
-
+        #translate the borders found in CTIO PDF document to RA-DEC, initially 
+        #given in HourAngle,Dec
+        fx_dec = Telescope.horizon_limits_tcs()
+        print type(fx_dec)
         #get the telescope horizon limits, in AltAz coordinates
         #lim_alt,lim_az,lim_altfix = Telescope.horizon_limits_tcs(t_window,site)
         
