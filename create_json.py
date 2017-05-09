@@ -194,6 +194,25 @@ class Telescope():
         res = np.array(map(h,time_arr))
         return res
 
+    @classmethod
+    def altaz_airm(cls,coord,time,site):
+        """For a single position, calculate the airmass at a given time and
+        location, given its RA-DEC coordinates
+        Inputs:
+        - coord: tuple containing RA and DEC
+        - time: astropy-time object (type array), describing the observation
+        time
+        - site: descriptor for the site
+        Returns
+        - a tuple with (altitude,azimuth,airmass)
+        """
+        radec = apy_coord.SkyCoord(ra=coord[0],dec=coord[1],frame="icrs",
+                                unit=(apy_u.deg,apy_u.deg))
+        f = lambda x : x.transform_to(apy_coord.AltAz(obstime=time,
+                                    location=site))
+        res = f(radec)
+        return (res.alt.degree[0],res.az.degree[0],res.secz[0])
+
 
 class Schedule():
     @classmethod
@@ -272,7 +291,8 @@ class Schedule():
             site_name=None,
             utc_minus_local=3,
             begin_day="2017-04-13 12:00:00",
-            obs_interval="full"):
+            obs_interval="full",
+            max_airm=1.8):
         """This method has few main steps:
         1) gets the site location from the Telescope class
         2) gets the range of hours every night lasts (to get the splitting for
@@ -342,6 +362,7 @@ class Schedule():
         time stamps, see if inside bounds. Then, if inside bounds, see if
         the position matches the ALtAz airmass criteria"""
         radec = Loader.obj_field(path_object,object_list)
+        sel = []
         for df in radec:
             for index,row in df.iterrows():
                 for idx0,tRA in enumerate(time_RA):
@@ -351,9 +372,14 @@ class Schedule():
                     cond3 = np.less_equal(row["DEC"],declim[1])
                     cond4 = np.greater_equal(row["DEC"],declim[0])
                     if cond1 and cond2 and cond3 and cond4:
-                        print "accepted"
-
+                        args = [[row["RA"],row["DEC"]],tRA[0],site]
+                        alt,az,secz = Telescope.altaz_airm(*args)
+                        if np.less_equal(secz,max_airm):
+                            tmp = (row["RA"],row["DEC"],alt,az,tRA[0])
+                            sel.append(tmp)
             print df.shape[0]
+        print len(sel)
+        exit()
 
         """for those objects inside bounds, get airmass (AltAz) and decide"""
 
