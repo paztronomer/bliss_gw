@@ -8,6 +8,7 @@ import subprocess
 import shlex
 import argparse
 import numpy as np
+import pandas as pd
 import astropy
 import astropy.units as apy_u
 import astropy.coordinates as apy_coord
@@ -129,7 +130,11 @@ class Telescope():
         of the zenith at a particular time, to get the real limits.
         HOUR_ANGLE = 0 == RA at ZENITH
         Returns:
-        - an interpolator object, class scipy.interpolate._bsplines.BSpline
+        - 3 lists: one of the fit, other for time/ra, and other for dec limits.
+        For the interpolator object, class scipy.interpolate._bsplines.BSpline,
+        acting as f(DEC), with RA=f(DEC). Inside time/ra, elements are:
+        (1) time for this setup, (2) RA of the zenith
+
         When this interpolator is applied, returns an array
         """
         HAngle= [5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,
@@ -146,18 +151,19 @@ class Telescope():
         HAngle = apy_coord.Angle(HAngle,unit=apy_u.h)
         #interpolate initial grid
         #lsq_spl = Toolbox.lsq_interp(np.array(dec_d),np.array(hra_h))
-
+        dec_lim = [Dec_d.min(),Dec_d.max()]
         #Steps:
         #1) for each of the time stamps, transform HourAngle to RA!!!
         #2) return the interpolator, using RA instead of
         #Note: I will calculate only the upper envelope, as this is symmetric
-        shift = []
-        for zen in ra_zenith[:,0]:
+        fit,time_ra = [],[]
+        for idx,zen in enumerate(ra_zenith[:,0]):
             tmp_ra = HAngle.degree + zen
             lsq_dec = Toolbox.lsq_interp(np.array(Dec_d),np.array(tmp_ra))
-            shift.append((lsq_dec,tmp_ra,zen))
+            fit.append(lsq_dec)
+            time_ra.append((time_interp[idx],zen))
         #Usage: xs, tmp_lsq(xs)
-        return shift
+        return fit,time_ra,dec_lim
 
     @classmethod
     def horizon_limits_plc(cls):
@@ -258,7 +264,12 @@ class Schedule():
         return False
 
     @classmethod
-    def point(cls,site_name=None,
+    def point(cls,
+            path_date="/Users/fco/Dropbox/des_BLISS_GW",
+            date_list="observing_2017A.txt",
+            path_object="/Users/fco/Dropbox/des_BLISS_GW",
+            object_list=["event1_ccds.txt","event2.csv","event3_ccds.txt"],
+            site_name=None,
             utc_minus_local=3,
             begin_day="2017-04-13 12:00:00",
             obs_interval="full"):
@@ -322,11 +333,37 @@ class Schedule():
 
         """giving RA for the zenith at diff times, locate the CTIO horizon"""
         #translate the borders found in CTIO PDF document to RA-DEC, initially
-        #given in HourAngle,Dec
-        fx_dec = Telescope.horizon_limits_tcs(zen_ra,t_interp)
+        #given in HourAngle,Dec. The output is: [function f(dec)=ra],
+        #[time,RA of zenith], [min(dec),max(dec)]
+        func_dec,time_RA,declim = Telescope.horizon_limits_tcs(zen_ra,t_interp)
+        print type(func_dec[2])
+
+        """for each event, for each object coordinate, for each of the
+        time stamps, see if inside bounds. Then, if inside bounds, see if
+        the position matches the ALtAz airmass criteria"""
+        radec = Loader.obj_field(path_object,object_list)
+        for df in radec:
+            for index,row in df.iterrows():
+                for idx0,tRA in enumerate(time_RA):
+                    low_RA = tRA[1] - func_dec[idx0](row["DEC"])
+                    cond1 = np.less_equal(row["RA"],func_dec[idx0](row["DEC"]))
+                    cond2 = np.greater_equal(row["RA"],low_RA)
+                    cond3 = np.less_equal(row["DEC"],declim[1])
+                    cond4 = np.greater_equal(row["DEC"],declim[0])
+                    if cond1 and cond2 and cond3 and cond4:
+                        print "accepted"
+
+            print df.shape[0]
+
+        """for those objects inside bounds, get airmass (AltAz) and decide"""
+
+
+        """path_date="/Users/fco/Dropbox/des_BLISS_GW",
+        date_list="observing_2017A.txt"
+        path_object=["/Users/fco/Dropbox/des_BLISS_GW"],
+        object_list=["event1_ccds.txt","event2.csv","event3_ccds.txt"],
+        """
         exit()
-
-
         #get the telescope horizon limits, in AltAz coordinates
         #lim_alt,lim_az,lim_altfix = Telescope.horizon_limits_tcs(t_window,site)
 
@@ -353,8 +390,26 @@ class Schedule():
         #transformation 2: considering obstime in RADEC
         #Nothing changes, so I will not use the additional arg
 
-
-
+class Loader():
+    #advantage of inherit from Schedule
+    @classmethod
+    def obj_field(cls,path,fname):
+        """Method to open the tables containing RA,DEC from the list of objects
+        and return a list of pandas tables
+        Inputs
+        - path: string containing parent path of the tables.
+        - fname: list of strings, containing the filenames of the object tables
+        Returns
+        - list of pandas objects, being the readed tables
+        """
+        tab = []
+        for fi in fname:
+            aux_fn = os.path.join(path,fi)
+            print fi
+            tmp = pd.read_table(aux_fn,sep="\s+",usecols=["RA","DEC"],
+                            engine="python",comment="#")
+            tab.append(tmp)
+        return tab
 
 
 if __name__ == "__main__":
