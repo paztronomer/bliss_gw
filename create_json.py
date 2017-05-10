@@ -7,6 +7,7 @@ import time
 import subprocess
 import shlex
 import argparse
+import math
 import numpy as np
 import pandas as pd
 import astropy
@@ -91,6 +92,32 @@ class Toolbox():
             logging.error("Error: time range is negative")
             exit(1)
         return (N,M)
+
+
+class Loader():
+    #advantage of inherit from Schedule
+    @classmethod
+    def obj_field(cls,path,fname):
+        """Method to open the tables containing RA,DEC from the list of objects
+        and return a list of pandas tables
+        Inputs
+        - path: string containing parent path of the tables.
+        - fname: list of strings, containing the filenames of the object tables
+        Returns
+        - list of pandas objects, being the readed tables
+        """
+        tab = []
+        for fi in fname:
+            aux_fn = os.path.join(path,fi)
+            print fi
+            tmp = pd.read_table(aux_fn,sep="\s+",usecols=["RA","DEC"],
+                            engine="python",comment="#")
+            tab.append(tmp)
+        return tab
+
+class JSON():
+    def __init__(self):
+        pass
 
 
 class Telescope():
@@ -288,6 +315,7 @@ class Schedule():
             date_list="observing_2017A.txt",
             path_object="/Users/fco/Dropbox/des_BLISS_GW",
             object_list=["event1_ccds.txt","event2.csv","event3_ccds.txt"],
+            selected_csv="selObjects_2017A.csv",
             site_name=None,
             utc_minus_local=3,
             begin_day="2017-04-13 12:00:00",
@@ -374,22 +402,38 @@ class Schedule():
                     if cond1 and cond2 and cond3 and cond4:
                         args = [[row["RA"],row["DEC"]],tRA[0],site]
                         alt,az,secz = Telescope.altaz_airm(*args)
-                        if np.less_equal(secz,max_airm):
-                            tmp = (row["RA"],row["DEC"],alt,az,tRA[0])
+                        cond5 = np.less_equal(secz,max_airm)
+                        cond6 = np.greater_equal(secz,1.)
+                        if cond5 and cond6:
+                            z_tmp = math.degrees(math.acos(1/np.float(secz)))
+                            tmp = (index+1,row["RA"],row["DEC"],alt,az)
+                            tmp += (z_tmp,secz,tRA[0][0])
                             sel.append(tmp)
-            print df.shape[0]
-        print len(sel)
+            #print df.shape[0]
+
+        """within the selection, we can have multiple entries per night
+        (different time stamps of each night subsampling), so must decide
+        based in the lowest angle from zenith"""
+        #create a pandas DataFrame or structured array for easier selection
+        df_columns = ["id","ra","dec","alt","az","z","secz","time"]
+        sel_df = pd.DataFrame(sel,columns=df_columns)
+        min_df = pd.DataFrame()
+        for N in sel_df["id"].unique():
+            tmp_df = sel_df.loc[(sel_df["id"]==N)]
+            tmp_df = tmp_df.loc[tmp_df["secz"].idxmin(axis="columns")]
+            min_df = min_df.append(tmp_df)
+
+        """we do have the results for the object matching the criteria, so now
+        a method to write out both the results and the JSON files must be
+        called. A different JSON file for each date"""
+        out_min = os.path.join(path_object,selected_csv)
+        min_df.to_csv(out_min,sep=",",header=True,index=False)
+        #write json files
+        JSON()
+
+
         exit()
 
-        """for those objects inside bounds, get airmass (AltAz) and decide"""
-
-
-        """path_date="/Users/fco/Dropbox/des_BLISS_GW",
-        date_list="observing_2017A.txt"
-        path_object=["/Users/fco/Dropbox/des_BLISS_GW"],
-        object_list=["event1_ccds.txt","event2.csv","event3_ccds.txt"],
-        """
-        exit()
         #get the telescope horizon limits, in AltAz coordinates
         #lim_alt,lim_az,lim_altfix = Telescope.horizon_limits_tcs(t_window,site)
 
@@ -404,8 +448,7 @@ class Schedule():
         #list of objects AltAz
         altaz = [f(a) for a in trange]
         #to transform AltAz to angles in degrees, use Angle(altaz[0].alt).dms
-
-
+        
         print apy_coord.Angle(altaz[0].alt).dms[:]
         print apy_coord.Angle(altaz[0].alt).is_within_bounds("0d", "360d")
         print altaz[0].alt
@@ -415,27 +458,6 @@ class Schedule():
             -10*apy_u.deg,None)
         #transformation 2: considering obstime in RADEC
         #Nothing changes, so I will not use the additional arg
-
-class Loader():
-    #advantage of inherit from Schedule
-    @classmethod
-    def obj_field(cls,path,fname):
-        """Method to open the tables containing RA,DEC from the list of objects
-        and return a list of pandas tables
-        Inputs
-        - path: string containing parent path of the tables.
-        - fname: list of strings, containing the filenames of the object tables
-        Returns
-        - list of pandas objects, being the readed tables
-        """
-        tab = []
-        for fi in fname:
-            aux_fn = os.path.join(path,fi)
-            print fi
-            tmp = pd.read_table(aux_fn,sep="\s+",usecols=["RA","DEC"],
-                            engine="python",comment="#")
-            tab.append(tmp)
-        return tab
 
 
 if __name__ == "__main__":
