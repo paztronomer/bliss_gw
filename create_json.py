@@ -117,8 +117,29 @@ class Loader():
 
 class JSON():
     def __init__(self):
-        pass
-
+        """Format:
+        - general open/close: []
+        - per entry open/close: {}
+        - separator: comma"""
+        d = dict()
+        d["count"] = 1
+        d["note"] = "Added to queue by user, not obstac"
+        d["seqid"] = seqid_LIGO #ask as input, use event 1,2,3
+        d["seqtot"] = seqtot
+        d["seqnum"] = seqnum
+        d["object"] = objectname #slack, "DESGW hex (RA)-(DEC) tiling 1"
+        d["propid"] = propid #slack
+        d["expType"] = "object"
+        d["program"] = "bliss" #slack
+        d["ra"] = ra
+        d["dec"] = dec
+        d["filter"] = "i"
+        d["exptime"] = 90
+        d["tiling_id"] = 1 #slack
+        d["comment"] = comment
+        d["wait"] = "False"
+        return True
+        
 
 class Telescope():
     @classmethod
@@ -448,7 +469,7 @@ class Schedule():
         #list of objects AltAz
         altaz = [f(a) for a in trange]
         #to transform AltAz to angles in degrees, use Angle(altaz[0].alt).dms
-        
+
         print apy_coord.Angle(altaz[0].alt).dms[:]
         print apy_coord.Angle(altaz[0].alt).is_within_bounds("0d", "360d")
         print altaz[0].alt
