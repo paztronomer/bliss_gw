@@ -1,6 +1,3 @@
-"""Simple script that creates JSON files for CTIO 4m, given RA,DEC and
-whether is half night or entire one.
-"""
 import os
 import sys
 import time
