@@ -16,19 +16,8 @@ import astropy.coordinates as apy_coord
 import astropy.time as apy_time
 import scipy.signal as signal #v0.19
 import scipy.interpolate as interpolate
-#others?
-#import json
 import logging
 
-"""STEPS
-1) CTIO coordinates --DONE
-2) set the night window for some half or full night --DONE
-3) restrict the window with the available dome pointing options --DONE
-4) open text file with ra,dec,nite,first/second/full
-5) decide the order of the exposures
-6) populate JSON dictionary
-7) write out the JSON file
-"""
 
 class Toolbox():
     @classmethod
@@ -59,18 +48,6 @@ class Toolbox():
         return lsq_spline
 
     @classmethod
-    def lsq_spline1D(cls,x,y):
-        from scipy.interpolate import LSQUnivariateSpline, UnivariateSpline
-        naux = np.int(np.ceil(x.shape[0]*0.1))
-        p1,p2 = 5,x.shape[0]-4
-        #t = x[p1:p2:naux]
-        t = x[::10]
-        degree = 3
-        t = np.r_[(x[0],)*(degree+1),t,(x[-1],)*(degree+1)]
-        spl = LSQUnivariateSpline(x,y,t)
-        return spl
-
-    @classmethod
     def delta_hr(cls,time_arr):
         """Method to return a round amount of hours for a astropy TimeDelta
         object, calculated from the peak-to-peak value given an astropy
@@ -95,7 +72,6 @@ class Toolbox():
 
 
 class Loader():
-    #advantage of inherit from Schedule
     @classmethod
     def obj_field(cls,path,fname):
         """Method to open the tables containing RA,DEC from the list of objects
@@ -114,6 +90,7 @@ class Loader():
                             engine="python",comment="#")
             tab.append(tmp)
         return tab
+
 
 class JSON():
     def __init__(self):
@@ -139,7 +116,7 @@ class JSON():
         d["comment"] = comment
         d["wait"] = "False"
         return True
-        
+
 
 class Telescope():
     @classmethod
@@ -183,7 +160,9 @@ class Telescope():
         acting as f(DEC), with RA=f(DEC). Inside time/ra, elements are:
         (1) time for this setup, (2) RA of the zenith
 
-        When this interpolator is applied, returns an array
+        Notes:
+        - When this interpolator is applied, returns an array
+        - PLC limits aren't taken into account
         """
         HAngle= [5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,5.25,
                 5.25,5.25,5.12,4.96,4.79,4.61,4.42,4.21,3.98,3.72,3.43,3.08,
@@ -212,15 +191,6 @@ class Telescope():
             time_ra.append((time_interp[idx],zen))
         #Usage: xs, tmp_lsq(xs)
         return fit,time_ra,dec_lim
-
-    @classmethod
-    def horizon_limits_plc(cls):
-        #limits: [ha_west,ha_east,dec_south,dec_north]
-        ha_d = [84.25,-89.25,0.00,0.00]
-        dec_d = [-30.0,-22.0,-95.14,40.31]
-        alt_d = [245.00,109.00,180.00,0.00]
-        az_d = [18.97,11.40,24.86,19.68]
-        return False
 
     @classmethod
     def zenith_ra(cls,time_arr,site):
@@ -326,9 +296,9 @@ class Schedule():
 
     @classmethod
     def avoid_moon(cls,day_ini,earth_loc):
-        #set a radius of N degrees from moon, if full??
-        moon1 = apy_coord.get_moon(day_ini,earth_loc)
-        return False
+        """If implemented, use apy_coord.get_moon(day_ini,earth_loc)
+        """
+        pass
 
     @classmethod
     def point(cls,
@@ -452,15 +422,7 @@ class Schedule():
         #write json files
         JSON()
 
-
-        exit()
-
-        #get the telescope horizon limits, in AltAz coordinates
-        #lim_alt,lim_az,lim_altfix = Telescope.horizon_limits_tcs(t_window,site)
-
-        #give time range with more entries? yes, because an object can
-        #be at the observability window maybe for only a part of the night
-
+        """
         #transformation 1: non considering obstime in RADEC initialization
         radec = apy_coord.SkyCoord(ra=ra,dec=dec,frame="icrs",
                                 unit=(apy_u.deg,apy_u.deg))
@@ -477,12 +439,17 @@ class Schedule():
         print altaz[0].secz
         print apy_coord.Angle([-20, 150, 350]*apy_u.deg).is_within_bounds(
             -10*apy_u.deg,None)
-        #transformation 2: considering obstime in RADEC
-        #Nothing changes, so I will not use the additional arg
-
+        """
 
 if __name__ == "__main__":
-
     print "starting..."
+    """
+    Important notice
+    ~~~~~~~~~~~~~~~~
+    - ask for inputs in the command line
+    - crete a help text
+    - test accuracy with other means
+    - sample night each 20 minutes
+    - besides json, crete a resume table
+    """
     Schedule.point()
-    #Telescope.site()
