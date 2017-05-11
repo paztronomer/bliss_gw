@@ -1,3 +1,5 @@
+"""Francisco Paz-Chinchon, University of Illinois/NCSA
+DES Collaboration"""
 import os
 import sys
 import time
