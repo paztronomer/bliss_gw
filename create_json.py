@@ -6,6 +6,7 @@ import time
 import subprocess
 import shlex
 import argparse
+import timeit
 import math
 import numpy as np
 import pandas as pd
@@ -92,7 +93,8 @@ class Loader():
 
 
 class JSON():
-    def __init__(self):
+    def __init__(self,seqid_LIGO=None,seqtot=None,seqnum=None,objectname=None,
+                propid=None,ra=None,dec=None,comment=None):
         """Format:
         - general open/close: []
         - per entry open/close: {}
@@ -114,7 +116,6 @@ class JSON():
         d["tiling_id"] = 1 #slack
         d["comment"] = comment
         d["wait"] = "False"
-        return True
 
 
 class Telescope():
@@ -441,7 +442,7 @@ class Schedule():
         """
 
 if __name__ == "__main__":
-    print "starting..."
+    print "running {0}".format(__file__)
     """
     Important notice
     ~~~~~~~~~~~~~~~~
@@ -451,4 +452,36 @@ if __name__ == "__main__":
     - sample night each 20 minutes
     - besides json, crete a resume table
     """
+    """Fill up the different arguments from the command line call
+    """
+    gral_descr = "Script to calculate observability from CTIO, usinf Blanco 4m telecope setup, for a set (or single) of coordinates given the observing date. There are 2 type of optional arguments: those wo serve as setup and those who will be directly inserted in the JSON files. NOTE: for JSON arguments use quotes if any space is present in the input"
+    aft = argparse.ArgumentParser(description=gral_descr)
+    #positional
+    aft.add_argument("coordinates",help="Set of space-separated filenames for the tables containig the coordinates to be calculated. Format: tables must have RA and DEC in header, despite the other column names; separator is expected to be spaces",nargs="+")
+    aft.add_argument("output",help="Output name for the file containing the coordinates that passed the observability criteria, plus additional information",metavar="")
+    #optional
+    aft.add_argument("--source",help="Path to the folder containing the tables to be used as input (if aplicable). Default is current directory", metavar="",default=os.getcwd())
+    g1 = aft.add_mutually_exclusive_group()
+    g1.add_argument("--dates","-d",help="Unique file containig all the nights for which the observability will be calculated. Format: 2 columns being YYYY-MM-DD {first/second/all}",metavar="")
+    g1.add_argument("--night","-n",help="Single night for which the observability will be calculated. Even if observing the second half of the night, input the date when the the Sun went down the horizon. Format: YYYY-MM-DD {first/second/all}",metavar="",nargs=2)
+    aft.add_argument("--utc_diff","-u",help="Difference in hours between UTC and the observing location, namely, CTIO. Default: 3",type=float,metavar="")
+    aft.add_argument("--max_airmass","-m",help="Maximum airmass at which the objects want to be observed. Default: 1.8",default=1.8,type=float,metavar="")
+    #optional to be added in JSON files
+    aft.add_argument("--sequence",help="JSON Required. Sequence ID, eg: \"LIGO event x\"",metavar="")
+    aft.add_argument("--proposal",help="JSON Required. Proposal ID",metavar="")
+    aft.add_argument("--program",help="JSON Required. Program ID, eg: BLISS",metavar="")
+    aft.add_argument("--count",help="JSON Optional. Number of exposures to be taken for each coordinate. Default: 1",metavar="")
+    aft.add_argument("--exptype",help="JSON Optional. Type of exposure. Default: object",metavar="")
+    aft.add_argument("--band",help="JSON Optional. Band to be used. Default: i",metavar="")
+    aft.add_argument("--exptime",help="JSON Optional. Exposure time in seconds. Default: 90",metavar="")
+    aft.add_argument("--tiling",help="JSON Optional. ID of the tiling. Default: 1",metavar="")
+    aft.add_argument("--note",help="JSON Optional",metavar="")
+    aft.add_argument("--comment",help="JSON Optional",metavar="")
+    #parser 
+    args = aft.parse_args()
+
     Schedule.point()
+    if True:
+        stp = "from __main__ import Schedule; sch = Schedule"
+        timeval = timeit.timeit("sch.point()",setup=stp,number=50)
+        print timeval
