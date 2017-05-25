@@ -53,7 +53,7 @@ class Toolbox():
         object, calculated from the peak-to-peak value given an astropy
         Time array
         Inputs:
-        - time_arr: arreay of Time objects
+        - time_arr: array of Time objects
         Returns
         - N: integer representing the round value of the number of hours the
         time interval contains.
@@ -75,47 +75,69 @@ class Loader():
     @classmethod
     def obj_field(cls,path,fname):
         """Method to open the tables containing RA,DEC from the list of objects
-        and return a list of pandas tables
+        and return a list of pandas tables. Note that inputs tables must have
+        a capitalized header with RA and DEC on it
         Inputs
-        - path: string containing parent path of the tables.
+        - path: string containing parent path to the tables.
         - fname: list of strings, containing the filenames of the object tables
         Returns
-        - list of pandas objects, being the readed tables
+        - list of pandas objects, being the loaded RA DEC tables
         """
-        tab = []
+        tablst = []
         for fi in fname:
             aux_fn = os.path.join(path,fi)
             print fi
             tmp = pd.read_table(aux_fn,sep="\s+",usecols=["RA","DEC"],
                             engine="python",comment="#")
-            tab.append(tmp)
-        return tab
+            tablst.append(tmp)
+        return tablst
 
 
 class JSON():
-    def __init__(self,seqid_LIGO=None,seqtot=None,seqnum=None,objectname=None,
-                propid=None,ra=None,dec=None,comment=None):
-        """Format:
+    def __init__(self,count=1,
+                note="Added to queue by user, not obstac",
+                seqid_LIGO=None,seqtot=None,seqnum=None,
+                objectname=None,
+                propid=None,
+                exptype="object",
+                progr="bliss",
+                ra=None,dec=None,
+                band="i",
+                exptime=90,
+                til_id=1,
+                comment=None,
+                towait="False"):
+        """Method to fill the dictionary for each of the objects passing the
+        observability criteria
+        Format:
         - general open/close: []
         - per entry open/close: {}
         - separator: comma"""
         d = dict()
-        d["count"] = 1
-        d["note"] = "Added to queue by user, not obstac"
+        d["count"] = count
+        d["note"] = note
         d["seqid"] = seqid_LIGO #ask as input, use event 1,2,3
         d["seqtot"] = seqtot
         d["seqnum"] = seqnum
         d["object"] = objectname #slack, "DESGW hex (RA)-(DEC) tiling 1"
         d["propid"] = propid #slack
-        d["expType"] = "object"
-        d["program"] = "bliss" #slack
+        d["expType"] = exptype
+        d["program"] = progr #slack
         d["ra"] = ra
         d["dec"] = dec
-        d["filter"] = "i"
-        d["exptime"] = 90
-        d["tiling_id"] = 1 #slack
+        d["filter"] = band
+        d["exptime"] = exptime
+        d["tiling_id"] = til_id #slack
         d["comment"] = comment
-        d["wait"] = "False"
+        d["wait"] = towait
+        self.dictio = d
+
+    def write_out(self,fname=None):
+        """Method to write the plain text file with the JSON information. It
+        uses a given filename and and the already filled dictionary
+        """
+        if fname is None:
+            fname = str(os.getpid()) + ".json"
 
 
 class Telescope():
@@ -242,10 +264,11 @@ class Schedule():
         - earth_loc: location of the observing site
         Returns:
         - array of astropy.time.core.Time elements, containing begin,
-        middle,and end of the night
+        middle, and end of the night
         """
-        #Sun position is in GCRS
+        #sample the day by minute
         aux = day_ini + np.linspace(0,24,1440) * apy_u.hour
+        #Sun position is in GCRS
         sun1 = apy_coord.get_sun(aux)
         altaz_frame = apy_coord.AltAz(obstime=aux,location=earth_loc)
         sun1_altaz = sun1.transform_to(altaz_frame)
@@ -267,9 +290,10 @@ class Schedule():
         return ntime
 
     @classmethod
-    def scan_night(cls,time_kn,Nstep=24):
-        """Use the 3 times for begin,middle,end of the night to create a
-        set of intermediate values.
+    def scan_night(cls,time_kn,Nstep=100):
+        """Use 2 or 3 times for begin,middle,end of the night to create a
+        set of intermediate values. The number of steps given as argument may
+        be transparent to the user.
         Inputs:
         - time_kn = 1D array with 2 or 3 astropy Time entries, representing
         begin, (optional: middle), end of the night
@@ -446,6 +470,13 @@ if __name__ == "__main__":
     """
     Important notice
     ~~~~~~~~~~~~~~~~
+    (!) line50: method delta_hr gives the amount of time in a delta time!!! use
+    it
+    (!) line274: the number of steps each night is divided must be transparent
+    to the user as input. Now is 24 but must change to every 10 minutes aprox
+
+    ...line 143 reading, understanding and fixing
+
     - ask for inputs in the command line
     - crete a help text
     - test accuracy with other means
@@ -477,7 +508,8 @@ if __name__ == "__main__":
     aft.add_argument("--tiling",help="JSON Optional. ID of the tiling. Default: 1",metavar="")
     aft.add_argument("--note",help="JSON Optional",metavar="")
     aft.add_argument("--comment",help="JSON Optional",metavar="")
-    #parser 
+    aft.add_argument("--wait",help="JSON Optional. Default: False",metavar="")
+    #parser
     args = aft.parse_args()
 
     Schedule.point()
