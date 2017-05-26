@@ -32,6 +32,12 @@ class Toolbox():
         - axis: interpolation axis, default is 0
         - check_finite: whether to check if the inputs contains only finite
         elements
+        Inputs
+        - x,y: one dimensional arrays
+        - degree: integer, defines the polynomial fitting
+        Returns
+        - object, the interpolator
+
         NOTES:
         (*) number of data points must be larger than the spline degree
         (*) knots must be a subset of data points of x[j] such that
@@ -42,7 +48,6 @@ class Toolbox():
         #by hand I set the use of all but 2 points at the ends
         p1,p2 = 2,x.shape[0]-3
         t = x[p1:p2:naux]
-        #using np.r_[] setup an array
         t = np.r_[(x[0],)*(degree+1),t,(x[-1],)*(degree+1)]
         lsq_spline = interpolate.make_lsq_spline(x,y,t,degree)
         return lsq_spline
@@ -52,7 +57,7 @@ class Toolbox():
         """Method to return a round amount of hours for a astropy TimeDelta
         object, calculated from the peak-to-peak value given an astropy
         Time array
-        Inputs:
+        Inputs
         - time_arr: array of Time objects
         Returns
         - N: integer representing the round value of the number of hours the
@@ -143,20 +148,26 @@ class JSON():
 class Telescope():
     @classmethod
     def site(cls,name=None):
-        #method from: http://docs.astropy.org/en/stable/api/astropy.coordinates.
-        #EarthLocation.html
-        #geodetic units
-        #- lat/long: [deg,min,sec]
-        #- altitude: mt
-        #- ellipsoid: WGS84 where South and West are negative
-
-        #CTIO geodetic
-        #data from: http://www.ctio.noao.edu/noao/node/2085
+        """Method to setup a coordinate system for the site of observation.
+        By default, CTIO is assumed, given its geodetic coordinates, taken from
+        http://www.ctio.noao.edu/noao/node/2085 where:
+        - lat/long: [deg,min,sec]
+        - altitude: mt
+        - ellipsoid: WGS84 where South and West are negative
+        If a new site is requested, 'name' must be one of the list in
+        EarthLocation... but remember the horizon limits are defined for Blanco
+        Telescope
+        Inputs
+        - name: string representing the name of the observing site, as given in
+        astropy.coordinates.EarthLocation.get_site_names(). If none, then uses
+        CTIO preloaded data
+        Returns
+        - coordinate system
+        """
         geod_lat =  [-30,10,10.78]
         geod_long = [-70,48,23.49]
         geod_h = 2241.4
         geod_ellip = "WGS84"
-
         if name is not None:
             coo = apy_coord.EarthLocation.of_site(name)
         else:
@@ -175,12 +186,19 @@ class Telescope():
         by CTIO as the horizon limits. The coordinates from CTIO are in
         HOUR_ANGLE,DEC so the HOUR_ANGLE must be added/substracted to the RA
         of the zenith at a particular time, to get the real limits.
-        HOUR_ANGLE = 0 == RA at ZENITH
-        Returns:
-        - 3 lists: one of the fit, other for time/ra, and other for dec limits.
-        For the interpolator object, class scipy.interpolate._bsplines.BSpline,
-        acting as f(DEC), with RA=f(DEC). Inside time/ra, elements are:
-        (1) time for this setup, (2) RA of the zenith
+        (HOUR_ANGLE=0) == (RA at ZENITH)
+        Inputs
+        - ra_zenith: array of zenith RA, for different times. The times are
+        the same as those given in time_interp
+        - time_interp: arrays of astropy time objects, over which the
+        interpolation is made
+        Returns
+        - 3 lists: one of the fit, other for time and its RA at zenith, and
+        other for DEC limits.
+
+        About the interpolator object, scipy.interpolate._bsplines.BSpline:
+        it acts as a function of DEC, f(DEC)=RA. Inside time_ra list, elements
+        are: (1) time for this setup, (2) RA of the zenith
 
         Notes:
         - When this interpolator is applied, returns an array
@@ -198,12 +216,10 @@ class Telescope():
                 23.0,23.0,23.0,23.0,23.0]
         HAngle,Dec_d = np.array(HAngle),np.array(Dec_d)
         HAngle = apy_coord.Angle(HAngle,unit=apy_u.h)
-        #interpolate initial grid
-        #lsq_spl = Toolbox.lsq_interp(np.array(dec_d),np.array(hra_h))
         dec_lim = [Dec_d.min(),Dec_d.max()]
         #Steps:
-        #1) for each of the time stamps, transform HourAngle to RA!!!
-        #2) return the interpolator, using RA instead of
+        #1) for each of the time stamps, transform HourAngle to RA
+        #2) return the interpolator, using RA
         #Note: I will calculate only the upper envelope, as this is symmetric
         fit,time_ra = [],[]
         for idx,zen in enumerate(ra_zenith[:,0]):
@@ -218,11 +234,11 @@ class Telescope():
     def zenith_ra(cls,time_arr,site):
         """Calculates the RA of the azimuth, at a given time, at a given site.
         Time must be given in UTC.
-        Inputs:
+        Inputs
         - array of times (astropy.time class) containing the set of time stamps
         between the borders. The shape is (interpolation_inside_interval,1)
         - site: location of the observing site
-        Returns:
+        Returns
         - array of same dimensions as the input array. Each element is a
         float for the RA of the zenith at given time and site, in degrees.
         """
@@ -238,11 +254,11 @@ class Telescope():
     def altaz_airm(cls,coord,time,site):
         """For a single position, calculate the airmass at a given time and
         location, given its RA-DEC coordinates
-        Inputs:
-        - coord: tuple containing RA and DEC
-        - time: astropy-time object (type array), describing the observation
+        Inputs
+        - coord: tuple containing RA and DEC, both in degrees
+        - time: astropy-time object (array), describing the observation
         time
-        - site: descriptor for the site
+        - site: descriptor for the site (coordinate system)
         Returns
         - a tuple with (altitude,azimuth,airmass)
         """
@@ -258,11 +274,13 @@ class Schedule():
     @classmethod
     def eff_night(cls,day_ini,earth_loc):
         """This method calculates the time range between the Sun being
-        at -14deg below the horizon, for a single night of observation
-        Inputs:
-        - day_ini: noon of the initial day of observation
-        - earth_loc: location of the observing site
-        Returns:
+        at -14deg below the horizon (begin and end of night), for a single
+        night of observation
+        Inputs
+        - day_ini: noon of the initial day of observation, the date at which
+        the night starts
+        - earth_loc: location of the observing site, EarthLocation object
+        Returns
         - array of astropy.time.core.Time elements, containing begin,
         middle, and end of the night
         """
@@ -272,7 +290,7 @@ class Schedule():
         sun1 = apy_coord.get_sun(aux)
         altaz_frame = apy_coord.AltAz(obstime=aux,location=earth_loc)
         sun1_altaz = sun1.transform_to(altaz_frame)
-        #transform AltAz to degrees. Use vectorization
+        #transform AltAz to degrees
         vs,v1,v2,v3 = apy_coord.Angle(sun1_altaz.alt).signed_dms
         todeg = lambda w,x,y,z: w*(x + y/np.float(60) + z/np.float(60**2))
         vect = np.vectorize(todeg,otypes=["f4"])
@@ -290,27 +308,29 @@ class Schedule():
         return ntime
 
     @classmethod
-    def scan_night(cls,time_kn,Nstep=100):
-        """Use 2 or 3 times for begin,middle,end of the night to create a
+    def scan_night(cls,time_kn,Nstep=50):
+        """Method to interpolate the night range, in astropy Time objects.
+        Use 2 or 3 times for begin,middle,end of the night to create a
         set of intermediate values. The number of steps given as argument may
         be transparent to the user.
-        Inputs:
-        - time_kn = 1D array with 2 or 3 astropy Time entries, representing
-        begin, (optional: middle), end of the night
-        Returns:
-        - array of shape (M,N) N=1 being number of section of the night
-        and M the number of time intervals the section want to be divided for a
-        later interpolation. Each time is an object of the class
-        astropy.time.core.Time
+        Inputs
+        - time_kn: 1D array with 2 or 3 astropy Time entries, representing
+        begin, (optional: middle), and end of the night
+        - Nstep: number of steps at which calculate the time interpolation
+        Returns
+        - array of shape (M,N) where N (N=1) is  the number of sections of the
+        night (values can be 2 or 3), and M the number of time intervals the
+        section of the night want to be divided for a later interpolation.
+        Each time is an object of the class astropy.time.core.Time
         """
         #to iso format
         ft = lambda x: apy_time.Time(apy_time.Time(x,format="jd"),
-                                    scale="utc",format="iso")#.iso
+                                    scale="utc",format="iso")
         #cases for 1 and 2 divisions of the night
         tjd = map(lambda x: x.jd, time_kn)
         if (time_kn.shape[0] in [2,3]):
             tjd_uni = np.linspace(np.min(tjd),np.max(tjd),Nstep+1)
-            iso_uni = np.array(map(ft,tjd_uni))#,dtype=np.dtype("|S50"))
+            iso_uni = np.array(map(ft,tjd_uni))
             res = iso_uni
         else:
             logging.error("Scan method needs 2-3 astropy-Time inputs")
@@ -475,7 +495,6 @@ if __name__ == "__main__":
     (!) line274: the number of steps each night is divided must be transparent
     to the user as input. Now is 24 but must change to every 10 minutes aprox
 
-    ...line 143 reading, understanding and fixing
 
     - ask for inputs in the command line
     - crete a help text
