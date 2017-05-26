@@ -402,6 +402,7 @@ class Schedule():
             pass
         else:
             logging.error("Interval must be: first, second, full")
+        print t_window
         #Returns an array of astropy.time.core.Time entries
         N_hr,N_min = Toolbox.delta_hr(t_window)
         if T_step is None:
