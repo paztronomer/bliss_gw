@@ -101,7 +101,7 @@ class Loader():
 class JSON():
     def __init__(self,count=1,
                 note="Added to queue by user, not obstac",
-                seqid_LIGO=None,seqtot=None,seqnum=None,
+                seqid_LIGO=0,seqtot=0,seqnum=0,
                 objectname=None,
                 propid=None,
                 exptype="object",
@@ -201,6 +201,7 @@ class Telescope():
         are: (1) time for this setup, (2) RA of the zenith
 
         Notes:
+        - the interpolator is applied for the positive part of HourAngle
         - When this interpolator is applied, returns an array
         - PLC limits aren't taken into account
         """
@@ -345,47 +346,49 @@ class Schedule():
         pass
 
     @classmethod
-    def point(cls,
-            path_date="/Users/fco/Dropbox/des_BLISS_GW",
-            date_list="observing_2017A.txt",
-            path_object="/Users/fco/Dropbox/des_BLISS_GW",
-            object_list=["event1_ccds.txt","event2.csv","event3_ccds.txt"],
-            selected_csv="selObjects_2017A.csv",
-            site_name=None,
-            utc_minus_local=3,
-            begin_day="2017-04-13 12:00:00",
-            obs_interval="full",
-            max_airm=1.8):
-        """This method has few main steps:
+    def point_onenight(cls,
+                    path_tab=None,
+                    fname_csv=None,
+                    fname_json=None,
+                    object_list=None,
+                    site_name=None,
+                    utc_minus_local=None,
+                    begin_day=None,#"2017-04-13 12:00:00",
+                    obs_interval=None,
+                    T_step=None,
+                    max_airm=None):
+        """Method to wrap different methods, to calculate objects observability
+        for a single night
+
+        This method has few main steps:
         1) gets the site location from the Telescope class
         2) gets the range of hours every night lasts (to get the splitting for
-        half observation nights)
-        3) pick the coordinates of one field and gets its AltAz position at
-        a given time
-        PENDING:
-        - if the field is visible, get the airmass (use threshold by user)
-        and select the order of observing
+        half observation nights). Remember the transformation to UTC so all
+        results are not in local time.
+        3) inside the observation window, define a grid of times to be used as
+        steps for the calculations of objects observability
+        4) given the borders or the observation window for a specific night,
+        interpolate as many points as the interpolation rate was defined. This
+        is made inside the interval, as defined by the input borders.
+        5) calculate the RA of the zenith in each of the time stamps
+        6) giving RA for the zenith at different times, locate the CTIO horizon
+        limits. Translate the borders found in CTIO PDF document to RA-DEC,
+        initially given in HourAngle,Dec
+        7) for each GW event, for each object coordinate, for each of the
+        time stamps (inside one night), see if fit inside bounds. Then, if
+        inside bounds, see if the position matches the ALtAz airmass criteria
+        8) within the selection, we can have multiple entries per night
+        (different time stamps of each night subsampling), so must decide
+        based in the lowest angle from zenith
+        9) after pick the lowest airmass, we do have the results for the object
+        matching the criteria. Then write out both the results and the JSON
+        files. A different JSON file for each date
+
         Note:
         - time from user must be feed in local time, but processing is made in
         UTC. The results are given in UTC time by astropy
         """
-        #Earth location
         site = Telescope.site(name=site_name)
-        #some SkyCoordinate, from Event 3
-        ra,dec = [0.430246,-35.4841]
-        #the RA DEC coordinates by convenience must be translated to
-        #altitude(0-90) azimuth(0-360,N->E)
-
-        #time range: must be set using the Sun elevation
-        #now I"ll use april 13, from 8.34pm to 6.57am
-        #Chile: UTC-3; Daylight save: UTC-4 -> local = UTC - <3,4>
-        #deltaUTC = utc_diff*apy_u.hour
-        #local_t1 = apy_time.Time("2017-04-13 20:34:00")
-        #local_t2 = apy_time.Time("2017-04-14 06:57:00")
-        #trange = [local_t1,local_t2]
-        #trange = [x - deltaUTC for x in trange]
-
-        """use UTC time plus the local site to get the obs window"""
         #starting at noon, scan for 24hrs searching for the Sun at -14deg,
         #returns an array on which time entries are astropy.time.core.Time
         deltaUTC = utc_minus_local*apy_u.hour
@@ -399,32 +402,25 @@ class Schedule():
             pass
         else:
             logging.error("Interval must be: first, second, full")
-
-        """inside the obs window, define a grid of times to be used as steps
-        for the calculations of obs window"""
-        #given the borders or the observation window for a specific night,
-        #interpolate as many points as the number oef hours in the interval,
-        #as defined by the input borders.
         #Returns an array of astropy.time.core.Time entries
         N_hr,N_min = Toolbox.delta_hr(t_window)
-        t_interp = Schedule.scan_night(t_window,Nstep=N_hr)
+        if T_step is None:
+            xstep = N_hr
+        elif np.less(T_step,N_min):
+            xstep = np.int(np.round(N_min/np.float(T_step)))
+        else:
+            logging.error("Time step (T_step) must be smaller than the window")
+            exit(1)
+        t_interp = Schedule.scan_night(t_window,Nstep=xstep)
 
-        """calculate the RA of the zenith in each of the time stamps"""
-        #for each of the time stamps, find the zenith RA. Returns an array of
-        #same shape as the array of interpolated times
+        #Returns an array of same shape as the array of interpolated times
         zen_ra = Telescope.zenith_ra(t_interp,site)
 
-        """giving RA for the zenith at diff times, locate the CTIO horizon"""
-        #translate the borders found in CTIO PDF document to RA-DEC, initially
-        #given in HourAngle,Dec. The output is: [function f(dec)=ra],
-        #[time,RA of zenith], [min(dec),max(dec)]
+        #output: [object f(dec)=ra],[time,RA of zenith],[min(dec),max(dec)]
         func_dec,time_RA,declim = Telescope.horizon_limits_tcs(zen_ra,t_interp)
-        print type(func_dec[2])
 
-        """for each event, for each object coordinate, for each of the
-        time stamps, see if inside bounds. Then, if inside bounds, see if
-        the position matches the ALtAz airmass criteria"""
-        radec = Loader.obj_field(path_object,object_list)
+        #iterate over list of objects
+        radec = Loader.obj_field(path_tab,object_list)
         sel = []
         for df in radec:
             for index,row in df.iterrows():
@@ -435,7 +431,7 @@ class Schedule():
                     cond3 = np.less_equal(row["DEC"],declim[1])
                     cond4 = np.greater_equal(row["DEC"],declim[0])
                     if cond1 and cond2 and cond3 and cond4:
-                        args = [[row["RA"],row["DEC"]],tRA[0],site]
+                        args = [(row["RA"],row["DEC"]),tRA[0],site]
                         alt,az,secz = Telescope.altaz_airm(*args)
                         cond5 = np.less_equal(secz,max_airm)
                         cond6 = np.greater_equal(secz,1.)
@@ -444,64 +440,87 @@ class Schedule():
                             tmp = (index+1,row["RA"],row["DEC"],alt,az)
                             tmp += (z_tmp,secz,tRA[0][0])
                             sel.append(tmp)
-            #print df.shape[0]
+        #if no object meets observability criteria
+        if len(sel) == 0:
+            err_mssg = "No object matches the observability criteria!"
+            err_mssg += "\nThere will be no output file"
+            logging.error(err_mssg)
+        else:
+            #create a pandas DataFrame or structured array for easier selection
+            df_columns = ["id","ra","dec","alt","az","z","secz","time"]
+            sel_df = pd.DataFrame(sel,columns=df_columns)
+            min_df = pd.DataFrame()
+            for N in sel_df["id"].unique():
+                tmp_df = sel_df.loc[(sel_df["id"]==N)]
+                tmp_df = tmp_df.loc[tmp_df["secz"].idxmin(axis="columns")]
+                min_df = min_df.append(tmp_df)
 
-        """within the selection, we can have multiple entries per night
-        (different time stamps of each night subsampling), so must decide
-        based in the lowest angle from zenith"""
-        #create a pandas DataFrame or structured array for easier selection
-        df_columns = ["id","ra","dec","alt","az","z","secz","time"]
-        sel_df = pd.DataFrame(sel,columns=df_columns)
-        min_df = pd.DataFrame()
-        for N in sel_df["id"].unique():
-            tmp_df = sel_df.loc[(sel_df["id"]==N)]
-            tmp_df = tmp_df.loc[tmp_df["secz"].idxmin(axis="columns")]
-            min_df = min_df.append(tmp_df)
+            #write out the resume table
+            min_df.to_csv(fname_csv,sep=",",header=True,index=False)
+            #write json file for this night
+            for index,row in min_df.iterrows():
+                JSON().write_out(fname_json)
 
-        """we do have the results for the object matching the criteria, so now
-        a method to write out both the results and the JSON files must be
-        called. A different JSON file for each date"""
-        out_min = os.path.join(path_object,selected_csv)
-        min_df.to_csv(out_min,sep=",",header=True,index=False)
-        #write json files
-        JSON()
-
+    @classmethod
+    def point_allnight(cls,
+                    path_tab=None,
+                    path_out=None,
+                    root_csv=None,
+                    root_json=None,
+                    date_tab=None,
+                    object_list=None,
+                    site_name=None,
+                    utc_minus_local=3,
+                    obs_interval=None,
+                    T_step=20,
+                    max_airm=1.8):
+        """Method to iteratively call the observability calculation, night by
+        night
         """
-        #transformation 1: non considering obstime in RADEC initialization
-        radec = apy_coord.SkyCoord(ra=ra,dec=dec,frame="icrs",
-                                unit=(apy_u.deg,apy_u.deg))
-        f = lambda x : radec.transform_to(apy_coord.AltAz(obstime=x,
-                                                        location=site))
-        #list of objects AltAz
-        altaz = [f(a) for a in trange]
-        #to transform AltAz to angles in degrees, use Angle(altaz[0].alt).dms
+        if path_out is None:
+            path_out = path_tab
+        if root_csv is None:
+            root_csv = "selected"
+        if root_json is None:
+            root_json = "obs"
+        #
+        date_fn = os.path.join(path_tab,date_tab)
+        wd = pd.read_table(date_fn,sep="\s+",names=["date","part"],
+                        header=None,engine="python",comment="#")
+        #
+        for idx,row in wd.iterrows():
+            print "Working in night: {0}/{1} ".format(*row)
+            out_aux = row["date"][5:].replace("-","_")
+            #csv resume table filename
+            out_csv = "{0}_{1}.csv".format(root_csv,out_aux)
+            out_csv = os.path.join(path_out,out_csv)
+            #json file filename
+            out_json = "{0}_{1}.json".format(root_json,out_aux)
+            out_json = os.path.join(path_out,out_json)
+            #arguments for night to night call
+            kw = dict()
+            kw["path_tab"] = path_tab
+            kw["fname_csv"] = out_csv
+            kw["fname_json"] = out_json
+            kw["object_list"] = object_list
+            kw["site_name"] = site_name
+            kw["utc_minus_local"] = utc_minus_local
+            kw["begin_day"] = row["date"]
+            kw["obs_interval"] = row["part"]
+            kw["T_step"] = T_step
+            kw["max_airm"] = max_airm
+            Schedule.point_onenight(**kw)
 
-        print apy_coord.Angle(altaz[0].alt).dms[:]
-        print apy_coord.Angle(altaz[0].alt).is_within_bounds("0d", "360d")
-        print altaz[0].alt
-        print altaz[0].az
-        print altaz[0].secz
-        print apy_coord.Angle([-20, 150, 350]*apy_u.deg).is_within_bounds(
-            -10*apy_u.deg,None)
-        """
 
 if __name__ == "__main__":
     print "running {0}".format(__file__)
-    """
-    Important notice
-    ~~~~~~~~~~~~~~~~
-    (!) line50: method delta_hr gives the amount of time in a delta time!!! use
-    it
-    (!) line274: the number of steps each night is divided must be transparent
-    to the user as input. Now is 24 but must change to every 10 minutes aprox
 
+    kw0 = dict()
+    kw0["path_tab"] = "/Users/fco/Dropbox/des_BLISS_GW"
+    kw0["date_tab"] = "observing_2017A.txt"
+    kw0["object_list"] = ["event1_ccds.txt","event2.csv","event3_ccds.txt"]
+    Schedule.point_allnight(**kw0)
 
-    - ask for inputs in the command line
-    - crete a help text
-    - test accuracy with other means
-    - sample night each 20 minutes
-    - besides json, crete a resume table
-    """
     """Fill up the different arguments from the command line call
     """
     gral_descr = "Script to calculate observability from CTIO, usinf Blanco 4m telecope setup, for a set (or single) of coordinates given the observing date. There are 2 type of optional arguments: those wo serve as setup and those who will be directly inserted in the JSON files. NOTE: for JSON arguments use quotes if any space is present in the input"
@@ -514,6 +533,7 @@ if __name__ == "__main__":
     g1 = aft.add_mutually_exclusive_group()
     g1.add_argument("--dates","-d",help="Unique file containig all the nights for which the observability will be calculated. Format: 2 columns being YYYY-MM-DD {first/second/all}",metavar="")
     g1.add_argument("--night","-n",help="Single night for which the observability will be calculated. Even if observing the second half of the night, input the date when the the Sun went down the horizon. Format: YYYY-MM-DD {first/second/all}",metavar="",nargs=2)
+    aft.add_argument("--T_step","-T",help="Integer, step size in minutes at which the night will be scanned to calculate observability. Default: 20",metavar="",type=int)
     aft.add_argument("--utc_diff","-u",help="Difference in hours between UTC and the observing location, namely, CTIO. Default: 3",type=float,metavar="")
     aft.add_argument("--max_airmass","-m",help="Maximum airmass at which the objects want to be observed. Default: 1.8",default=1.8,type=float,metavar="")
     #optional to be added in JSON files
@@ -531,7 +551,6 @@ if __name__ == "__main__":
     #parser
     args = aft.parse_args()
 
-    Schedule.point()
     if True:
         stp = "from __main__ import Schedule; sch = Schedule"
         timeval = timeit.timeit("sch.point()",setup=stp,number=50)
