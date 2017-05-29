@@ -91,7 +91,6 @@ class Loader():
         tablst = []
         for fi in fname:
             aux_fn = os.path.join(path,fi)
-            print fi
             tmp = pd.read_table(aux_fn,sep="\s+",usecols=["RA","DEC"],
                             engine="python",comment="#")
             tablst.append(tmp)
@@ -309,7 +308,7 @@ class Schedule():
         return ntime
 
     @classmethod
-    def scan_night(cls,time_kn,Nstep=50):
+    def scan_night(cls,time_kn,Nstep=100):
         """Method to interpolate the night range, in astropy Time objects.
         Use 2 or 3 times for begin,middle,end of the night to create a
         set of intermediate values. The number of steps given as argument may
@@ -353,7 +352,7 @@ class Schedule():
                     object_list=None,
                     site_name=None,
                     utc_minus_local=None,
-                    begin_day=None,#"2017-04-13 12:00:00",
+                    begin_day=None,
                     obs_interval=None,
                     T_step=None,
                     max_airm=None):
@@ -392,7 +391,8 @@ class Schedule():
         #starting at noon, scan for 24hrs searching for the Sun at -14deg,
         #returns an array on which time entries are astropy.time.core.Time
         deltaUTC = utc_minus_local*apy_u.hour
-        t_utc = apy_time.Time(begin_day) + deltaUTC
+        delta_noon = 12.0*apy_u.hour
+        t_utc = apy_time.Time(begin_day) + deltaUTC + delta_noon
         t_window = Schedule.eff_night(t_utc,site)
         if obs_interval == "first":
             t_window = t_window[:-1]
@@ -402,11 +402,10 @@ class Schedule():
             pass
         else:
             logging.error("Interval must be: first, second, full")
-        print t_window
         #Returns an array of astropy.time.core.Time entries
         N_hr,N_min = Toolbox.delta_hr(t_window)
         if T_step is None:
-            xstep = N_hr
+            xstep = np.int(np.round(N_min/10.))
         elif np.less(T_step,N_min):
             xstep = np.int(np.round(N_min/np.float(T_step)))
         else:
@@ -439,7 +438,7 @@ class Schedule():
                         if cond5 and cond6:
                             z_tmp = math.degrees(math.acos(1/np.float(secz)))
                             tmp = (index+1,row["RA"],row["DEC"],alt,az)
-                            tmp += (z_tmp,secz,tRA[0][0])
+                            tmp += (z_tmp,secz,tRA[0][0]-deltaUTC)
                             sel.append(tmp)
         #if no object meets observability criteria
         if len(sel) == 0:
@@ -448,14 +447,15 @@ class Schedule():
             logging.error(err_mssg)
         else:
             #create a pandas DataFrame or structured array for easier selection
-            df_columns = ["id","ra","dec","alt","az","z","secz","time"]
+            df_columns = ["n_id","ra","dec","alt","az","z","secz","local_time"]
             sel_df = pd.DataFrame(sel,columns=df_columns)
             min_df = pd.DataFrame()
-            for N in sel_df["id"].unique():
-                tmp_df = sel_df.loc[(sel_df["id"]==N)]
+            for N in sel_df["n_id"].unique():
+                tmp_df = sel_df.loc[(sel_df["n_id"]==N)]
                 tmp_df = tmp_df.loc[tmp_df["secz"].idxmin(axis="columns")]
                 min_df = min_df.append(tmp_df)
-
+            #sort by RA and then by DEC
+            min_df.sort_values(["secz"],ascending=[True],inplace=True)
             #write out the resume table
             min_df.to_csv(fname_csv,sep=",",header=True,index=False)
             #write json file for this night
@@ -470,16 +470,12 @@ class Schedule():
                     root_json=None,
                     date_tab=None,
                     object_list=None,
-                    site_name=None,
-                    utc_minus_local=3,
-                    obs_interval=None,
+                    utc_minus_local=4,
                     T_step=20,
                     max_airm=1.8):
         """Method to iteratively call the observability calculation, night by
         night
         """
-        if path_out is None:
-            path_out = path_tab
         if root_csv is None:
             root_csv = "selected"
         if root_json is None:
@@ -490,7 +486,8 @@ class Schedule():
                         header=None,engine="python",comment="#")
         #
         for idx,row in wd.iterrows():
-            print "Working in night: {0}/{1} ".format(*row)
+            print "Working on night: {0}/{1} ".format(*row)
+            t0 = time.time()
             out_aux = row["date"][5:].replace("-","_")
             #csv resume table filename
             out_csv = "{0}_{1}.csv".format(root_csv,out_aux)
@@ -504,40 +501,64 @@ class Schedule():
             kw["fname_csv"] = out_csv
             kw["fname_json"] = out_json
             kw["object_list"] = object_list
-            kw["site_name"] = site_name
             kw["utc_minus_local"] = utc_minus_local
             kw["begin_day"] = row["date"]
             kw["obs_interval"] = row["part"]
             kw["T_step"] = T_step
             kw["max_airm"] = max_airm
             Schedule.point_onenight(**kw)
+            t1 = time.time()
+            print "Elapsed time: {0:.2f} minutes".format((t1-t0)/60.)
 
 
 if __name__ == "__main__":
-    print "running {0}".format(__file__)
-
-    kw0 = dict()
-    kw0["path_tab"] = "/Users/fco/Dropbox/des_BLISS_GW"
-    kw0["date_tab"] = "observing_2017A.txt"
-    kw0["object_list"] = ["event1_ccds.txt","event2.csv","event3_ccds.txt"]
-    Schedule.point_allnight(**kw0)
+    print "\tRunning script: {0}\n\t{1}".format(__file__,"="*30)
 
     """Fill up the different arguments from the command line call
     """
-    gral_descr = "Script to calculate observability from CTIO, usinf Blanco 4m telecope setup, for a set (or single) of coordinates given the observing date. There are 2 type of optional arguments: those wo serve as setup and those who will be directly inserted in the JSON files. NOTE: for JSON arguments use quotes if any space is present in the input"
+    gral_descr = "Script to calculate observability from CTIO, using"
+    gral_descr += " Blanco 4m telecope setup, for a set (or single) of "
+    gral_descr += " coordinates given the observing date. There are 2 type of"
+    gral_descr += " optional arguments: those wo serve as setup and those who"
+    gral_descr += " will be directly inserted in the JSON files. NOTE: for"
+    gral_descr += " JSON arguments use quotes if any space is in the string"
     aft = argparse.ArgumentParser(description=gral_descr)
     #positional
-    aft.add_argument("coordinates",help="Set of space-separated filenames for the tables containig the coordinates to be calculated. Format: tables must have RA and DEC in header, despite the other column names; separator is expected to be spaces",nargs="+")
-    aft.add_argument("output",help="Output name for the file containing the coordinates that passed the observability criteria, plus additional information",metavar="")
+    h1 = "Set of space-separated filenames for the tables containig the"
+    h1 += " coordinates to be calculated. Format: tables must have RA and DEC"
+    h1 += " in header, despite the other column names; separator is expected"
+    h1 += " to be spaces"
+    aft.add_argument("objects",help=h1,nargs="+")
+    h2 = "Unique file containig all the nights for which the observability"
+    h2 += " will be calculated. Format: 2 columns being YYYY-MM-DD"
+    h2 += " {first/second/all}"
+    aft.add_argument("dates",help=h2,metavar="")
     #optional
-    aft.add_argument("--source",help="Path to the folder containing the tables to be used as input (if aplicable). Default is current directory", metavar="",default=os.getcwd())
-    g1 = aft.add_mutually_exclusive_group()
-    g1.add_argument("--dates","-d",help="Unique file containig all the nights for which the observability will be calculated. Format: 2 columns being YYYY-MM-DD {first/second/all}",metavar="")
-    g1.add_argument("--night","-n",help="Single night for which the observability will be calculated. Even if observing the second half of the night, input the date when the the Sun went down the horizon. Format: YYYY-MM-DD {first/second/all}",metavar="",nargs=2)
-    aft.add_argument("--T_step","-T",help="Integer, step size in minutes at which the night will be scanned to calculate observability. Default: 20",metavar="",type=int)
-    aft.add_argument("--utc_diff","-u",help="Difference in hours between UTC and the observing location, namely, CTIO. Default: 3",type=float,metavar="")
-    aft.add_argument("--max_airmass","-m",help="Maximum airmass at which the objects want to be observed. Default: 1.8",default=1.8,type=float,metavar="")
+    h3 = "Path to folder containing the source tables for objects and dates."
+    h3 += " Default is current directory"
+    aft.add_argument("--source","-s",help=h3,metavar="",default=os.getcwd())
+    h4 = "Path to folder for output files (JSON and CSV)."
+    h4 += " Default is current directory"
+    aft.add_argument("--out","-o",help=h4,metavar="",default=os.getcwd())
+    h5 = "Root string of output name(s) for the file(s) containing"
+    h5 += " the coordinates that passed the observability criteria, plus"
+    h5 += " additional information. Default is \'selected\'"
+    aft.add_argument("--root_csv",help=h5,metavar="",default="selected")
+    h6 = "Root string of JSON output files (if objects were found)."
+    h6 += " Default is \'obs\'"
+    aft.add_argument("--root_json",help=h6,metavar="",default="obs")
+    h7 = "Difference in hours between UTC and the observing location, namely,"
+    h7 += " CTIO (value=UTC-LOCAL). Default: 4"
+    aft.add_argument("--utc_diff","-u",help=h7,type=float,metavar="",default=4)
+    h8 = "Step (in minutes) at which the night will be sampled to calculate"
+    h8 += " the observability at each interval. Default: 10"
+    aft.add_argument("--t_step","-t",help=h8,metavar="",type=float,default=10)
+    h9 = "Maximum airmass at which the objects want to be observed."
+    h9 += " Default: 1.8"
+    aft.add_argument("--max_airmass","-m",help=h9,metavar="",default=1.8,
+                    type=float)
     #optional to be added in JSON files
+    """
     aft.add_argument("--sequence",help="JSON Required. Sequence ID, eg: \"LIGO event x\"",metavar="")
     aft.add_argument("--proposal",help="JSON Required. Proposal ID",metavar="")
     aft.add_argument("--program",help="JSON Required. Program ID, eg: BLISS",metavar="")
@@ -549,10 +570,31 @@ if __name__ == "__main__":
     aft.add_argument("--note",help="JSON Optional",metavar="")
     aft.add_argument("--comment",help="JSON Optional",metavar="")
     aft.add_argument("--wait",help="JSON Optional. Default: False",metavar="")
+    """
     #parser
     args = aft.parse_args()
+    kw0 = vars(args)
+    kw1 = dict()
+    kw1["object_list"] = kw0["objects"]
+    kw1["date_tab"] = kw0["dates"]
+    kw1["path_tab"] = kw0["source"]
+    kw1["path_out"] = kw0["out"]
+    kw1["root_csv"] = kw0["root_csv"]
+    kw1["root_json"] = kw0["root_json"]
+    kw1["utc_minus_local"] = kw0["utc_diff"]
+    kw1["T_step"] = kw0["t_step"]
+    kw1["max_airm"] = kw0["max_airmass"]
+    #
+    Schedule.point_allnight(**kw1)
 
-    if True:
+    if False:
+        kw0 = dict()
+        kw0["path_tab"] = "/Users/fco/Dropbox/des_BLISS_GW"
+        kw0["date_tab"] = "observing_2017A.txt"
+        kw0["object_list"] = ["event1_ccds.txt","event2.csv","event3_ccds.txt"]
+        Schedule.point_allnight(**kw0)
+
+    if False:
         stp = "from __main__ import Schedule; sch = Schedule"
         timeval = timeit.timeit("sch.point()",setup=stp,number=50)
         print timeval
