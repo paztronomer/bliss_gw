@@ -98,13 +98,14 @@ class Loader():
 
 
 class JSON():
-    def __init__(self,count=1,
+    def __init__(self,
+                count=1,
                 note="Added to queue by user, not obstac",
                 seqid_LIGO=0,seqtot=0,seqnum=0,
                 objectname=None,
                 propid=None,
                 exptype="object",
-                progr="bliss",
+                progr=None,
                 ra=None,dec=None,
                 band="i",
                 exptime=90,
@@ -136,12 +137,36 @@ class JSON():
         d["wait"] = towait
         self.dictio = d
 
-    def write_out(self,fname=None):
-        """Method to write the plain text file with the JSON information. It
-        uses a given filename and and the already filled dictionary
+    def write_out(self,wrout,itera,maxitera):
+        """Method to write the plain text file with the JSON information.
+        Receives a writable object and works on it
         """
-        if fname is None:
-            fname = str(os.getpid()) + ".json"
+        if itera == 0:
+            wrout.write("[\n")
+            wrout.write("\t{\n")
+            for key,value in self.dictio.iteritems():
+                if isinstance(value,str):
+                    wrout.write("\t\t\"{0}\": \"{1}\"\n".format(key,value))
+                else:
+                    wrout.write("\t\t\"{0}\": {1}\n".format(key,value))
+            wrout.write("\t},\n")
+        elif itera == maxitera:
+            wrout.write("\t{\n")
+            for key,value in self.dictio.iteritems():
+                if isinstance(value,str):
+                    wrout.write("\t\t\"{0}\": \"{1}\"\n".format(key,value))
+                else:
+                    wrout.write("\t\t\"{0}\": {1}\n".format(key,value))
+            wrout.write("\t}\n")
+            wrout.write("]\n")
+        else:
+            wrout.write("\t{\n")
+            for key,value in self.dictio.iteritems():
+                if isinstance(value,str):
+                    wrout.write("\t\t\"{0}\": \"{1}\"\n".format(key,value))
+                else:
+                    wrout.write("\t\t\"{0}\": {1}\n".format(key,value))
+            wrout.write("\t},\n")
 
 
 class Telescope():
@@ -355,7 +380,10 @@ class Schedule():
                     begin_day=None,
                     obs_interval=None,
                     T_step=None,
-                    max_airm=None):
+                    max_airm=None,
+                    count=None,seqid_LIGO=None,propid=None,exptype=None,
+                    progr=None,band=None,exptime=None,til_id=None,
+                    comment=None,note=None,towait=None):
         """Method to wrap different methods, to calculate objects observability
         for a single night
 
@@ -442,8 +470,8 @@ class Schedule():
                             sel.append(tmp)
         #if no object meets observability criteria
         if len(sel) == 0:
-            err_mssg = "No object matches the observability criteria!"
-            err_mssg += "\nThere will be no output file"
+            err_mssg = "\tNo object matches the observability criteria!"
+            err_mssg += "\n\tThere will be no output file\n"
             logging.error(err_mssg)
         else:
             #create a pandas DataFrame or structured array for easier selection
@@ -455,12 +483,35 @@ class Schedule():
                 tmp_df = tmp_df.loc[tmp_df["secz"].idxmin(axis="columns")]
                 min_df = min_df.append(tmp_df)
             #sort by RA and then by DEC
-            min_df.sort_values(["secz"],ascending=[True],inplace=True)
+            min_df.sort_values("secz",ascending=True,inplace=True)
+            #reset index to avoid confusion
+            min_df = min_df.reset_index()
             #write out the resume table
-            min_df.to_csv(fname_csv,sep=",",header=True,index=False)
+            min_df.to_csv(fname_csv,sep=",",index=False,header=True)
             #write json file for this night
+            fjson = open(fname_json,"w")
             for index,row in min_df.iterrows():
-                JSON().write_out(fname_json)
+                jw = dict()
+                jw["count"] = count
+                jw["seqid_LIGO"] = seqid_LIGO
+                jw["propid"] = propid
+                jw["exptype"] = exptype
+                jw["progr"] = progr
+                jw["band"] = band
+                jw["exptime"] = exptime
+                jw["til_id"] = til_id
+                jw["comment"] = comment
+                jw["note"] = note
+                jw["towait"] = towait
+                jw["seqtot"] = len(min_df.index)
+                jw["seqnum"] = index + 1
+                aux_jw0 = "DESGW hex {0} {1} tiling {2}".format(
+                    row["ra"],row["dec"],til_id)
+                jw["objectname"] = aux_jw0
+                jw["ra"] = row["ra"]
+                jw["dec"] = row["dec"]
+                JSON(**jw).write_out(fjson,index,len(min_df.index)-1)
+            fjson.close()
 
     @classmethod
     def point_allnight(cls,
@@ -472,7 +523,10 @@ class Schedule():
                     object_list=None,
                     utc_minus_local=4,
                     T_step=20,
-                    max_airm=1.8):
+                    max_airm=1.8,
+                    count=None,seqid_LIGO=None,propid=None,exptype=None,
+                    progr=None,band=None,exptime=None,til_id=None,
+                    comment=None,note=None,towait=None):
         """Method to iteratively call the observability calculation, night by
         night
         """
@@ -480,6 +534,8 @@ class Schedule():
             root_csv = "selected"
         if root_json is None:
             root_json = "obs"
+        if propid is None:
+            logging.warning("\t(!) No value has been entered for Proposal ID")
         #
         date_fn = os.path.join(path_tab,date_tab)
         wd = pd.read_table(date_fn,sep="\s+",names=["date","part"],
@@ -506,6 +562,17 @@ class Schedule():
             kw["obs_interval"] = row["part"]
             kw["T_step"] = T_step
             kw["max_airm"] = max_airm
+            kw["count"] = count
+            kw["seqid_LIGO"] = seqid_LIGO
+            kw["propid"] = propid
+            kw["exptype"] = exptype
+            kw["progr"] = progr
+            kw["band"] = band
+            kw["exptime"] = exptime
+            kw["til_id"] = til_id
+            kw["comment"] = comment
+            kw["note"] = note
+            kw["towait"] = towait
             Schedule.point_onenight(**kw)
             t1 = time.time()
             print "Elapsed time: {0:.2f} minutes".format((t1-t0)/60.)
@@ -542,7 +609,7 @@ if __name__ == "__main__":
     aft.add_argument("--out","-o",help=h4,metavar="",default=os.getcwd())
     h5 = "Root string of output name(s) for the file(s) containing"
     h5 += " the coordinates that passed the observability criteria, plus"
-    h5 += " additional information. Default is \'selected\'"
+    h5 += " additional information. Default is \'sel_info\'"
     aft.add_argument("--root_csv",help=h5,metavar="",default="selected")
     h6 = "Root string of JSON output files (if objects were found)."
     h6 += " Default is \'obs\'"
@@ -558,19 +625,32 @@ if __name__ == "__main__":
     aft.add_argument("--max_airmass","-m",help=h9,metavar="",default=1.8,
                     type=float)
     #optional to be added in JSON files
-    """
-    aft.add_argument("--sequence",help="JSON Required. Sequence ID, eg: \"LIGO event x\"",metavar="")
-    aft.add_argument("--proposal",help="JSON Required. Proposal ID",metavar="")
-    aft.add_argument("--program",help="JSON Required. Program ID, eg: BLISS",metavar="")
-    aft.add_argument("--count",help="JSON Optional. Number of exposures to be taken for each coordinate. Default: 1",metavar="")
-    aft.add_argument("--exptype",help="JSON Optional. Type of exposure. Default: object",metavar="")
-    aft.add_argument("--band",help="JSON Optional. Band to be used. Default: i",metavar="")
-    aft.add_argument("--exptime",help="JSON Optional. Exposure time in seconds. Default: 90",metavar="")
-    aft.add_argument("--tiling",help="JSON Optional. ID of the tiling. Default: 1",metavar="")
-    aft.add_argument("--note",help="JSON Optional",metavar="")
-    aft.add_argument("--comment",help="JSON Optional",metavar="")
-    aft.add_argument("--wait",help="JSON Optional. Default: False",metavar="")
-    """
+    h10 = "JSON optional.Number of exposures to be taken for each object."
+    h10 += " Default: 1"
+    aft.add_argument("--count",help=h10,metavar="",default=1,type=int)
+    h11 = "JSON required. Sequence ID, eg: \'LIGO event x\'"
+    aft.add_argument("--sequence",help=h11,metavar="")
+    h12 = "JSON required. Proposal ID"
+    aft.add_argument("--proposal",help=h12,metavar="")
+    h13 = "JSON optional. Exposure type. Default: \'object\'"
+    aft.add_argument("--exptype",help=h13,metavar="",default="object")
+    h14 = "JSON required. Program ID, example: \'BLISS\'"
+    aft.add_argument("--program",help=h14,metavar="")
+    h15 = "JSON optional. Band to be used. Default: i"
+    aft.add_argument("--band",help=h15,metavar="",default="i")
+    h16 = "JSON optional. Exposure time in seconds. Default: 90"
+    aft.add_argument("--exptime",help=h16,metavar="",default=90,type=float)
+    h17 = "JSON optional. ID of the tiling. Default: 1"
+    aft.add_argument("--tiling",help=h17,metavar="",default=1)
+    h18 = "JSON optional. Comment to be added. Default: empty"
+    aft.add_argument("--comment",help="JSON Optional",metavar="",default="")
+    h19 = "JSON optional. Note to be added. Default: \'Added to queue by"
+    h19 += " user, not obstac\'"
+    aft.add_argument("--note",help=h19,metavar="",
+                    default="Added to queue by user, not obstac")
+    h20 = "JSON optional. Whether to wait to proceed for next exposure."
+    h20 += " Default: \'False\'"
+    aft.add_argument("--wait",help=h20,metavar="",default="False")
     #parser
     args = aft.parse_args()
     kw0 = vars(args)
@@ -584,6 +664,17 @@ if __name__ == "__main__":
     kw1["utc_minus_local"] = kw0["utc_diff"]
     kw1["T_step"] = kw0["t_step"]
     kw1["max_airm"] = kw0["max_airmass"]
+    kw1["count"] = kw0["count"]
+    kw1["seqid_LIGO"] = kw0["sequence"]
+    kw1["propid"] = kw0["proposal"]
+    kw1["exptype"] = kw0["exptype"]
+    kw1["progr"] = kw0["program"]
+    kw1["band"] = kw0["band"]
+    kw1["exptime"] = kw0["exptime"]
+    kw1["til_id"] = kw0["tiling"]
+    kw1["comment"] = kw0["comment"]
+    kw1["note"] = kw0["note"]
+    kw1["towait"] = kw0["wait"]
     #
     Schedule.point_allnight(**kw1)
 
