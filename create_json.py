@@ -21,6 +21,28 @@ import logging
 
 class Toolbox():
     @classmethod
+    def dbquery_ea(cls,expnum_list):
+        import easyaccess as ea
+        if len(expnum_list) == 1:
+            expnum_aux = expnum_list[0]
+        elif len(expnum_list) > 1:
+            expnum_aux = ",".join(map(str,expnum_list))
+        else:
+            logging.error("EXPNUM list has zero entries")
+            exit(1)
+        connect = ea.connect("desoper")
+        cursor = connect.cursor()
+        q = "select expnum,radeg,decdeg,object from exposure"
+        q += " where expnum in ({0})".format(expnum_aux)
+        #df_obj = cursor.execute(q)
+        df_obj = connect.query_to_pandas(q)
+        connect.close()
+        if len(df_obj.index) == 0:
+            logging.error("No OBJECT name in the DB for the inputs EXPNUM")
+            exit(1)
+        return df_obj
+
+    @classmethod
     def lsq_interp(cls,x,y,degree=4):
         """Caller fot the scipy least squares method interpolator
         To call scipy.interpolate_make_lsq_spline():
@@ -79,9 +101,9 @@ class Toolbox():
 class Loader():
     @classmethod
     def obj_field(cls,path,fname):
-        """Method to open the tables containing RA,DEC from the list of objects
-        and return a list of pandas tables. Note that inputs tables must have
-        a capitalized header with RA and DEC on it
+        """Method to open the tables containing RA,DEC,EXPNUM from the list
+        of objects and return a list of pandas tables. Note that inputs
+        tables must have a capitalized header with RA, DEC, and EXPNUM on it
         Inputs
         - path: string containing parent path to the tables.
         - fname: list of strings, containing the filenames of the object tables
@@ -91,7 +113,7 @@ class Loader():
         tablst = []
         for fi in fname:
             aux_fn = os.path.join(path,fi)
-            tmp = pd.read_table(aux_fn,sep="\s+",usecols=["RA","DEC"],
+            tmp = pd.read_table(aux_fn,sep="\s+",usecols=["RA","DEC","EXPNUM"],
                             engine="python",comment="#")
             tablst.append(tmp)
         return tablst
@@ -451,6 +473,8 @@ class Schedule():
         radec = Loader.obj_field(path_tab,object_list)
         sel = []
         for df in radec:
+            #get the object names from desoper DB
+            dbinfo = Toolbox.dbquery_ea(list(df["EXPNUM"].values))
             for index,row in df.iterrows():
                 for idx0,tRA in enumerate(time_RA):
                     low_RA = tRA[1] - func_dec[idx0](row["DEC"])
@@ -464,9 +488,11 @@ class Schedule():
                         cond5 = np.less_equal(secz,max_airm)
                         cond6 = np.greater_equal(secz,1.)
                         if cond5 and cond6:
+                            dfaux = dbinfo.loc[dbinfo["EXPNUM"]==row["EXPNUM"]]
                             z_tmp = math.degrees(math.acos(1/np.float(secz)))
                             tmp = (index+1,row["RA"],row["DEC"],alt,az)
-                            tmp += (z_tmp,secz,tRA[0][0]-deltaUTC)
+                            tmp += (z_tmp,secz)
+                            tmp += (tRA[0][0]-deltaUTC,dfaux["OBJECT"])
                             sel.append(tmp)
         #if no object meets observability criteria
         if len(sel) == 0:
@@ -475,8 +501,8 @@ class Schedule():
             logging.error(err_mssg)
         else:
             #create a pandas DataFrame or structured array for easier selection
-            df_columns = ["n_id","ra","dec","alt","az","z","secz","local_time"]
-            sel_df = pd.DataFrame(sel,columns=df_columns)
+            cols = ["n_id","ra","dec","alt","az","z","secz","local_time","obj"]
+            sel_df = pd.DataFrame(sel,columns=cols)
             min_df = pd.DataFrame()
             for N in sel_df["n_id"].unique():
                 tmp_df = sel_df.loc[(sel_df["n_id"]==N)]
@@ -505,9 +531,7 @@ class Schedule():
                 jw["towait"] = towait
                 jw["seqtot"] = len(min_df.index)
                 jw["seqnum"] = index + 1
-                aux_jw0 = "DESGW hex {0} {1} tiling {2}".format(
-                    row["ra"],row["dec"],til_id)
-                jw["objectname"] = aux_jw0
+                jw["objectname"] = row["obj"].values[0]
                 jw["ra"] = row["ra"]
                 jw["dec"] = row["dec"]
                 JSON(**jw).write_out(fjson,index,len(min_df.index)-1)
@@ -531,7 +555,7 @@ class Schedule():
         night
         """
         if root_csv is None:
-            root_csv = "selected"
+            root_csv = "sel_info"
         if root_json is None:
             root_json = "obs"
         if propid is None:
@@ -592,14 +616,14 @@ if __name__ == "__main__":
     aft = argparse.ArgumentParser(description=gral_descr)
     #positional
     h1 = "Set of space-separated filenames for the tables containig the"
-    h1 += " coordinates to be calculated. Format: tables must have RA and DEC"
-    h1 += " in header, despite the other column names; separator is expected"
-    h1 += " to be spaces"
+    h1 += " coordinates to be calculated. Format: tables must have RA, DEC, "
+    h1 += " and EXPNUM in header, despite the other column names; separator"
+    h1 += " is expected to be spaces"
     aft.add_argument("objects",help=h1,nargs="+")
     h2 = "Unique file containig all the nights for which the observability"
     h2 += " will be calculated. Format: 2 columns being YYYY-MM-DD"
     h2 += " {first/second/all}"
-    aft.add_argument("dates",help=h2,metavar="")
+    aft.add_argument("dates",help=h2)
     #optional
     h3 = "Path to folder containing the source tables for objects and dates."
     h3 += " Default is current directory"
@@ -677,13 +701,6 @@ if __name__ == "__main__":
     kw1["towait"] = kw0["wait"]
     #
     Schedule.point_allnight(**kw1)
-
-    if False:
-        kw0 = dict()
-        kw0["path_tab"] = "/Users/fco/Dropbox/des_BLISS_GW"
-        kw0["date_tab"] = "observing_2017A.txt"
-        kw0["object_list"] = ["event1_ccds.txt","event2.csv","event3_ccds.txt"]
-        Schedule.point_allnight(**kw0)
 
     if False:
         stp = "from __main__ import Schedule; sch = Schedule"
