@@ -17,12 +17,12 @@ import astropy.time as apy_time
 import scipy.signal as signal #v0.19
 import scipy.interpolate as interpolate
 import logging
+import easyaccess as ea
 
 
 class Toolbox():
     @classmethod
     def dbquery_ea(cls,expnum_list):
-        import easyaccess as ea
         if len(expnum_list) == 1:
             expnum_aux = expnum_list[0]
         elif len(expnum_list) > 1:
