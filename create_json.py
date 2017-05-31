@@ -22,7 +22,7 @@ import easyaccess as ea
 
 class Toolbox():
     @classmethod
-    def dbquery_ea(cls,expnum_list):
+    def dbquery_ea(cls,expnum_list,band=None,unique_band=False):
         if len(expnum_list) == 1:
             expnum_aux = expnum_list[0]
         elif len(expnum_list) > 1:
@@ -32,13 +32,27 @@ class Toolbox():
             exit(1)
         connect = ea.connect("desoper")
         cursor = connect.cursor()
-        q = "select expnum,radeg,decdeg,object from exposure"
+        if unique_band:
+            qaux = " and band='{0}'".format(band)
+        else:
+            qaux = ""
+        q = "select expnum,radeg,decdeg,object,band from exposure"
         q += " where expnum in ({0})".format(expnum_aux)
+        q += qaux
+        q += " order by expnum"
         #df_obj = cursor.execute(q)
         df_obj = connect.query_to_pandas(q)
         connect.close()
-        if len(df_obj.index) == 0:
-            logging.error("No OBJECT name in the DB for the inputs EXPNUM")
+        if (len(df_obj.index) == 0):
+            logging.error("\nNo entries in the DB for the inputs EXPNUM")
+            exit(1)
+        elif (np.unique(df_obj["band"].values).shape[0] > 1):
+            logging.warning("\nEXPNUMs from different bands")
+            print "Bands: {0}".format(np.unique(df_obj["band"].values))
+        #for unique band, must stopt the code if not matches criteria
+        if unique_band and (len(df_obj.index) != len(expnum_list)):
+            logging.error("\nMultiple bands for the input EXPNUMs")
+            print "Bands: {0}".format(np.unique(df_obj["band"].values))
             exit(1)
         return df_obj
 
@@ -166,26 +180,38 @@ class JSON():
         if itera == 0:
             wrout.write("[\n")
             wrout.write("\t{\n")
-            for key,value in self.dictio.iteritems():
-                if isinstance(value,str):
+            for idx,(key,value) in enumerate(self.dictio.iteritems()):
+                if isinstance(value,str) and np.less(idx,len(self.dictio)-1):
+                    wrout.write("\t\t\"{0}\": \"{1}\",\n".format(key,value))
+                elif isinstance(value,str) and np.equal(idx,len(self.dictio)-1):
                     wrout.write("\t\t\"{0}\": \"{1}\"\n".format(key,value))
+                elif np.less(idx,len(self.dictio)-1):
+                    wrout.write("\t\t\"{0}\": {1},\n".format(key,value))
                 else:
                     wrout.write("\t\t\"{0}\": {1}\n".format(key,value))
             wrout.write("\t},\n")
         elif itera == maxitera:
             wrout.write("\t{\n")
-            for key,value in self.dictio.iteritems():
-                if isinstance(value,str):
+            for idx,(key,value) in enumerate(self.dictio.iteritems()):
+                if isinstance(value,str) and np.less(idx,len(self.dictio)-1):
+                    wrout.write("\t\t\"{0}\": \"{1}\",\n".format(key,value))
+                elif isinstance(value,str) and np.equal(idx,len(self.dictio)-1):
                     wrout.write("\t\t\"{0}\": \"{1}\"\n".format(key,value))
+                elif np.less(idx,len(self.dictio)-1):
+                    wrout.write("\t\t\"{0}\": {1},\n".format(key,value))
                 else:
                     wrout.write("\t\t\"{0}\": {1}\n".format(key,value))
             wrout.write("\t}\n")
             wrout.write("]\n")
         else:
             wrout.write("\t{\n")
-            for key,value in self.dictio.iteritems():
-                if isinstance(value,str):
+            for idx,(key,value) in enumerate(self.dictio.iteritems()):
+                if isinstance(value,str) and np.less(idx,len(self.dictio)-1):
+                    wrout.write("\t\t\"{0}\": \"{1}\",\n".format(key,value))
+                elif isinstance(value,str) and np.equal(idx,len(self.dictio)-1):
                     wrout.write("\t\t\"{0}\": \"{1}\"\n".format(key,value))
+                elif np.less(idx,len(self.dictio)-1):
+                    wrout.write("\t\t\"{0}\": {1},\n".format(key,value))
                 else:
                     wrout.write("\t\t\"{0}\": {1}\n".format(key,value))
             wrout.write("\t},\n")
@@ -405,7 +431,7 @@ class Schedule():
                     max_airm=None,
                     count=None,seqid_LIGO=None,propid=None,exptype=None,
                     progr=None,band=None,exptime=None,til_id=None,
-                    comment=None,note=None,towait=None):
+                    comment=None,note=None,towait=None,unique_band=None):
         """Method to wrap different methods, to calculate objects observability
         for a single night
 
@@ -474,7 +500,8 @@ class Schedule():
         sel = []
         for df in radec:
             #get the object names from desoper DB
-            dbinfo = Toolbox.dbquery_ea(list(df["EXPNUM"].values))
+            dbinfo = Toolbox.dbquery_ea(list(df["EXPNUM"].values),band=band,
+                                    unique_band=unique_band)
             for index,row in df.iterrows():
                 for idx0,tRA in enumerate(time_RA):
                     low_RA = tRA[1] - func_dec[idx0](row["DEC"])
@@ -491,8 +518,8 @@ class Schedule():
                             dfaux = dbinfo.loc[dbinfo["EXPNUM"]==row["EXPNUM"]]
                             z_tmp = math.degrees(math.acos(1/np.float(secz)))
                             tmp = (index+1,row["RA"],row["DEC"],alt,az)
-                            tmp += (z_tmp,secz)
-                            tmp += (tRA[0][0]-deltaUTC,dfaux["OBJECT"])
+                            tmp += (z_tmp,secz,tRA[0][0]-deltaUTC)
+                            tmp += (dfaux["OBJECT"].values[0],)
                             sel.append(tmp)
         #if no object meets observability criteria
         if len(sel) == 0:
@@ -531,7 +558,7 @@ class Schedule():
                 jw["towait"] = towait
                 jw["seqtot"] = len(min_df.index)
                 jw["seqnum"] = index + 1
-                jw["objectname"] = row["obj"].values[0]
+                jw["objectname"] = row["obj"]
                 jw["ra"] = row["ra"]
                 jw["dec"] = row["dec"]
                 JSON(**jw).write_out(fjson,index,len(min_df.index)-1)
@@ -550,7 +577,7 @@ class Schedule():
                     max_airm=1.8,
                     count=None,seqid_LIGO=None,propid=None,exptype=None,
                     progr=None,band=None,exptime=None,til_id=None,
-                    comment=None,note=None,towait=None):
+                    comment=None,note=None,towait=None,unique_band=None):
         """Method to iteratively call the observability calculation, night by
         night
         """
@@ -597,6 +624,7 @@ class Schedule():
             kw["comment"] = comment
             kw["note"] = note
             kw["towait"] = towait
+            kw["unique_band"] = unique_band
             Schedule.point_onenight(**kw)
             t1 = time.time()
             print "Elapsed time: {0:.2f} minutes".format((t1-t0)/60.)
@@ -648,6 +676,10 @@ if __name__ == "__main__":
     h9 += " Default: 1.8"
     aft.add_argument("--max_airmass","-m",help=h9,metavar="",default=1.8,
                     type=float)
+    h21 = "Whether to request all input EXPNUMs to have the same band as the"
+    h21 += " given in '--band' argument (where deafult is 'i'). Boolean.
+    h21 += " Default: False"
+    aft.add_argument("--uni_band",help=h21,metavar="",default=False,type=bool)
     #optional to be added in JSON files
     h10 = "JSON optional.Number of exposures to be taken for each object."
     h10 += " Default: 1"
@@ -699,6 +731,7 @@ if __name__ == "__main__":
     kw1["comment"] = kw0["comment"]
     kw1["note"] = kw0["note"]
     kw1["towait"] = kw0["wait"]
+    kw1["unique_band"] = kw0["uni_band"]
     #
     Schedule.point_allnight(**kw1)
 
