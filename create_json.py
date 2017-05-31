@@ -46,13 +46,13 @@ class Toolbox():
         if (len(df_obj.index) == 0):
             logging.error("\nNo entries in the DB for the inputs EXPNUM")
             exit(1)
-        elif (np.unique(df_obj["band"].values).shape[0] > 1):
+        elif (np.unique(df_obj["BAND"].values).shape[0] > 1):
             logging.warning("\nEXPNUMs from different bands")
-            print "Bands: {0}".format(np.unique(df_obj["band"].values))
+            print "Bands: {0}".format(np.unique(df_obj["BAND"].values))
         #for unique band, must stopt the code if not matches criteria
         if unique_band and (len(df_obj.index) != len(expnum_list)):
             logging.error("\nMultiple bands for the input EXPNUMs")
-            print "Bands: {0}".format(np.unique(df_obj["band"].values))
+            print "Bands: {0}".format(np.unique(df_obj["BAND"].values))
             exit(1)
         return df_obj
 
@@ -587,6 +587,8 @@ class Schedule():
             root_json = "obs"
         if propid is None:
             logging.warning("\t(!) No value has been entered for Proposal ID")
+        if unique_band is None:
+            unique_band = False
         #
         date_fn = os.path.join(path_tab,date_tab)
         wd = pd.read_table(date_fn,sep="\s+",names=["date","part"],
@@ -677,9 +679,8 @@ if __name__ == "__main__":
     aft.add_argument("--max_airmass","-m",help=h9,metavar="",default=1.8,
                     type=float)
     h21 = "Whether to request all input EXPNUMs to have the same band as the"
-    h21 += " given in '--band' argument (where deafult is 'i'). Boolean.
-    h21 += " Default: False"
-    aft.add_argument("--uni_band",help=h21,metavar="",default=False,type=bool)
+    h21 += " given in '--band' argument (where deafult is 'i')"
+    aft.add_argument("--req_one_band",help=h21,action='store_true')
     #optional to be added in JSON files
     h10 = "JSON optional.Number of exposures to be taken for each object."
     h10 += " Default: 1"
@@ -731,7 +732,7 @@ if __name__ == "__main__":
     kw1["comment"] = kw0["comment"]
     kw1["note"] = kw0["note"]
     kw1["towait"] = kw0["wait"]
-    kw1["unique_band"] = kw0["uni_band"]
+    kw1["unique_band"] = kw0["req_one_band"]
     #
     Schedule.point_allnight(**kw1)
 
